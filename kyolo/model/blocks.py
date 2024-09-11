@@ -77,7 +77,7 @@ def rep_conv(
     out_channels: int,
     kernel_size: int = 3,
     activation: Optional[str] = "silu",
-    name: str = "rep_conv",
+    name: Optional[str] = None,
     **kwargs,
 ) -> KerasTensor:
     """Applies RepConv block
@@ -97,7 +97,7 @@ def rep_conv(
         out_channels=out_channels,
         kernel_size=kernel_size,
         activation=None,
-        name=f"{name}.conv_block",
+        name=f"{name}.conv_block" if name else name,
         **kwargs,
     )
     x2 = conv_block(
@@ -105,13 +105,14 @@ def rep_conv(
         out_channels=out_channels,
         kernel_size=1,
         activation=None,
-        name=f"{name}.pw_conv_block",
+        name=f"{name}.pw_conv_block" if name else name,
         **kwargs,
     )
     x = x1 + x2
     if activation:
         x = layers.Activation(
-            activations.get(activation.lower()), name=f"{name}.act" if name else name
+            activations.get(activation.lower()),
+            name=f"{name}.act" if name else name
         )(x)
 
     return x
@@ -119,18 +120,18 @@ def rep_conv(
 
 @register_block
 def bottleneck(
-    input: KerasTensor,
+    inputs: KerasTensor,
     out_channels: int,
     kernel_sizes: Tuple[int, int] = (3, 3),
     residual: bool = True,
     expand: float = 1.0,
-    name: str = "bottleneck",
+    name: Optional[str] = None,
     **kwargs,
 ) -> KerasTensor:
     """Applies a BottleNeck Block with optional residual connection.
 
     Args:
-        input: input tensors
+        inputs: input tensors
         out_channels: integer, the number of output channels expected
         kernel_sizes: tuple of two integers, the first one is the kernel size of
             RepConv block and the last one is the kernel size of Conv block
@@ -145,17 +146,17 @@ def bottleneck(
     neck_channels = int(out_channels * expand)
     in_channels = input.shape[-1]
     x = rep_conv(
-        input,
+        inputs,
         out_channels=neck_channels,
         kernel_size=kernel_sizes[0],
-        name=f"{name}.rep_conv",
+        name=f"{name}.rep_conv" if name else name,
         **kwargs,
     )
     x = conv_block(
         x,
         out_channels=out_channels,
         kernel_size=kernel_sizes[1],
-        name=f"{name}.conv_block",
+        name=f"{name}.conv_block" if name else name,
         **kwargs,
     )
 
@@ -168,6 +169,140 @@ def bottleneck(
         else:
             x = input + x
 
+    return x
+
+
+@register_block
+def rep_ncsp(
+    inputs: KerasTensor,
+    out_channels: int,
+    kernel_size: int = 1,
+    csp_expand: float = 0.5,
+    repeat_num: int = 1,
+    neck_args: Dict[str, Any] = {},
+    name: Optional[str] = None,
+    **kwargs,
+) -> KerasTensor:
+    """Applies RepNCSP block
+
+    Args:
+        inputs: input tensors
+        out_channels: integer, the number of output channels expected
+        kernel_size: integer, the kernel size of Conv block
+        csp_expand: float, the factor to which the inputs channels
+            should be expanded in the middle layers
+        repeat_num: integer, the number of Bottleneck blocks to use
+        neck_args: dict, arguments for the Bottleneck blocks
+        name: string, a prefix for names of layers used
+
+    Returns: output tensors from the RepNCSP block
+    """
+    neck_channels = int(out_channels * csp_expand)
+    x1 = conv_block(
+        inputs,
+        out_channels=neck_channels,
+        kernel_size=kernel_size,
+        name=f"{name}.conv_block_1" if name else name,
+        **kwargs
+    )
+    for i in range(repeat_num):
+        x1 = bottleneck(
+            x1,
+            neck_channels,
+            name=f"{name}.bottleneck_{i}" if name else name,
+            **neck_args
+        )
+
+    x2 = conv_block(
+        inputs,
+        out_channels=neck_channels,
+        kernel_size=kernel_size,
+        name=f"{name}.conv_block_2" if name else name,
+        **kwargs
+    )
+    x = ops.concatenate([x1, x2],axis=-1)
+    x = conv_block(
+        x,
+        out_channels=out_channels,
+        kernel_size=kernel_size,
+        name=f"{name}.conv_block_3" if name else name,
+        **kwargs
+    )
+
+    return x
+
+
+@register_block
+def rep_ncspelan(
+    inputs: KerasTensor,
+    out_channels: int,
+    part_channels: int,
+    process_channels: Optional[int] = None,
+    csp_args: Dict[str, Any] = {},
+    csp_neck_args: Dict[str, Any] = {},
+    name: Optional[str] = None,
+    **kwargs,
+) -> KerasTensor:
+    """RepNCSPELAN block combining RepNCSP blocks with ELAN structure.
+
+    Args:
+        inputs: input tensors
+        out_channels: integer, the number of output channels expected
+        part_channels: integer, output channels of the first ConvBlock
+        process_channels: integer, channels for RepNCSP blocks
+        csp_args: dict, arguments for the RepNCSP block
+        csp_neck_args: dict, arguments for the Bottleneck blocks in
+            RepNCSP blocks
+        name: string, a prefix for names of layers used
+
+    Returns: output tensors from the BottleNeck block
+    """
+    if process_channels is None:
+        process_channels = part_channels // 2
+    x = conv_block(
+        inputs,
+        out_channels=part_channels,
+        kernel_size=1,
+        name=f"{name}.conv_block_1" if name else name,
+        **kwargs,
+    )
+    x1, x2 = ops.split(x, 2, axis=-1)
+    x3 = rep_ncsp(
+        x2,
+        out_channels=process_channels,
+        neck_args=csp_neck_args,
+        name=f"{name}.rep_ncsp_1" if name else name,
+        **csp_args,
+    )
+    x3 = conv_block(
+        x3,
+        out_channels=process_channels,
+        kernel_size=3,
+        name=f"{name}.conv_block_2" if name else name,
+        **kwargs,
+    )
+    x4 = rep_ncsp(
+        x3,
+        out_channels=process_channels,
+        neck_args=csp_neck_args,
+        name=f"{name}.rep_ncsp_2" if name else name,
+        **csp_args,
+    )
+    x4 = conv_block(
+        x4,
+        out_channels=process_channels,
+        kernel_size=3,
+        name=f"{name}.conv_block_3" if name else name,
+        **kwargs,
+    )
+    x = ops.concatenate([x1, x2, x3, x4],axis=-1)
+    x = conv_block(
+        x,
+        out_channels=out_channels,
+        kernel_size=1,
+        name=f"{name}.conv_block_4" if name else name,
+        **kwargs,
+    )
     return x
 
 
