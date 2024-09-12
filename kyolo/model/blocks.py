@@ -1,6 +1,7 @@
-from typing import Callable, Dict, List, Optional, Tuple, TypeAlias, Union
+from typing import Callable, Dict, List, Optional, Tuple, TypeAlias, Union, Any
 
-from keras import KerasTensor, activations, layers, ops
+from keras import KerasTensor, activations, layers, ops, backend, initializers
+
 
 BLOCKS_REGISTRY: Dict[str, Callable] = {}
 
@@ -44,8 +45,7 @@ def conv_block(
     name: Optional[str] = None,
     **kwargs,
 ) -> KerasTensor:
-    # Note: Keras 3 not allow custom padding
-    conv_padding = "valid"
+    # NOTE: Keras 3 not allow custom padding
     if padding:
         x = layers.ZeroPadding2D(
             padding=auto_pad(kernel_size, kwargs.get("dilation_rate", 1)),
@@ -55,12 +55,12 @@ def conv_block(
     x = layers.Conv2D(
         filters=out_channels,
         kernel_size=kernel_size,
-        padding=conv_padding,
+        padding="valid",
         use_bias=bias,
         name=f"{name}.conv" if name else name,
         **kwargs,
     )(x)
-    # Note: set momentum=1-momentum to consistent with pytorch
+    # NOTE: set momentum=1-momentum to consistent with pytorch
     x = layers.BatchNormalization(
         epsilon=eps, momentum=1 - momentum, name=f"{name}.bn" if name else name
     )(x)
@@ -111,8 +111,7 @@ def rep_conv(
     x = x1 + x2
     if activation:
         x = layers.Activation(
-            activations.get(activation.lower()),
-            name=f"{name}.act" if name else name
+            activations.get(activation.lower()), name=f"{name}.act" if name else name
         )(x)
 
     return x
@@ -144,7 +143,7 @@ def bottleneck(
     """
 
     neck_channels = int(out_channels * expand)
-    in_channels = input.shape[-1]
+    in_channels = inputs.shape[-1]
     x = rep_conv(
         inputs,
         out_channels=neck_channels,
@@ -167,7 +166,7 @@ def bottleneck(
                 f"out_channels ({out_channels})",
             )
         else:
-            x = input + x
+            x = inputs + x
 
     return x
 
@@ -179,7 +178,7 @@ def rep_ncsp(
     kernel_size: int = 1,
     csp_expand: float = 0.5,
     repeat_num: int = 1,
-    neck_args: Dict[str, Any] = {},
+    neck_args: Optional[Dict[str, Any]] = None,
     name: Optional[str] = None,
     **kwargs,
 ) -> KerasTensor:
@@ -203,14 +202,14 @@ def rep_ncsp(
         out_channels=neck_channels,
         kernel_size=kernel_size,
         name=f"{name}.conv_block_1" if name else name,
-        **kwargs
+        **kwargs,
     )
     for i in range(repeat_num):
         x1 = bottleneck(
             x1,
             neck_channels,
             name=f"{name}.bottleneck_{i}" if name else name,
-            **neck_args
+            **(neck_args if neck_args else {}),
         )
 
     x2 = conv_block(
@@ -218,15 +217,15 @@ def rep_ncsp(
         out_channels=neck_channels,
         kernel_size=kernel_size,
         name=f"{name}.conv_block_2" if name else name,
-        **kwargs
+        **kwargs,
     )
-    x = ops.concatenate([x1, x2],axis=-1)
+    x = ops.concatenate([x1, x2], axis=-1)
     x = conv_block(
         x,
         out_channels=out_channels,
         kernel_size=kernel_size,
         name=f"{name}.conv_block_3" if name else name,
-        **kwargs
+        **kwargs,
     )
 
     return x
@@ -238,8 +237,8 @@ def rep_ncspelan(
     out_channels: int,
     part_channels: int,
     process_channels: Optional[int] = None,
-    csp_args: Dict[str, Any] = {},
-    csp_neck_args: Dict[str, Any] = {},
+    csp_args: Optional[Dict[str, Any]] = None,
+    csp_neck_args: Optional[Dict[str, Any]] = None,
     name: Optional[str] = None,
     **kwargs,
 ) -> KerasTensor:
@@ -272,7 +271,7 @@ def rep_ncspelan(
         out_channels=process_channels,
         neck_args=csp_neck_args,
         name=f"{name}.rep_ncsp_1" if name else name,
-        **csp_args,
+        **(csp_args if csp_args else {}),
     )
     x3 = conv_block(
         x3,
@@ -286,7 +285,7 @@ def rep_ncspelan(
         out_channels=process_channels,
         neck_args=csp_neck_args,
         name=f"{name}.rep_ncsp_2" if name else name,
-        **csp_args,
+        **(csp_args if csp_args else {}),
     )
     x4 = conv_block(
         x4,
@@ -295,7 +294,7 @@ def rep_ncspelan(
         name=f"{name}.conv_block_3" if name else name,
         **kwargs,
     )
-    x = ops.concatenate([x1, x2, x3, x4],axis=-1)
+    x = ops.concatenate([x1, x2, x3, x4], axis=-1)
     x = conv_block(
         x,
         out_channels=out_channels,
@@ -321,7 +320,7 @@ def elan(
         x=x,
         out_channels=part_channels,
         kernel_size=1,
-        name=f"{name}.conv1" if name else name,
+        name=f"{name}.conv_block_1" if name else name,
         **kwargs,
     )
     x1, x2 = ops.split(x, 2, axis=-1)
@@ -329,14 +328,14 @@ def elan(
         x=x2,
         out_channels=process_channels,
         kernel_size=3,
-        name=f"{name}.conv2" if name else name,
+        name=f"{name}.conv_block_2" if name else name,
         **kwargs,
     )
     x4 = conv_block(
         x=x3,
         out_channels=process_channels,
         kernel_size=3,
-        name=f"{name}.conv3" if name else name,
+        name=f"{name}.conv_block_3" if name else name,
         **kwargs,
     )
 
@@ -344,7 +343,7 @@ def elan(
         x=ops.concatenate([x1, x2, x3, x4], axis=-1),
         out_channels=out_channels,
         kernel_size=1,
-        name=f"{name}.conv4" if name else name,
+        name=f"{name}.conv_block_4" if name else name,
         **kwargs,
     )
     return x
@@ -425,13 +424,13 @@ def sppelan(
 
 
 @register_block
-def cbfuse(
-    x: List[List[KerasTensor]],
-    target_tensor: KerasTensor,
+def cb_fuse(
+    x: Tuple[List[List[KerasTensor]], KerasTensor],
     indices: List[int],
     mode: str = "nearest",
 ) -> KerasTensor:
-    # Note: all x and target must have same channel
+    x, target_tensor = x
+    # NOTE: all x and target must have same channel
     allow_modes = set(["bilinear", "nearest", "bicubic", "lanczos3", "lanczos5"])
     assert len(x) == len(indices)
     if mode.lower() not in allow_modes:
@@ -449,3 +448,211 @@ def cbfuse(
     outs.append(target_tensor)
 
     return ops.sum(ops.stack(outs), axis=0)
+
+
+def anc2vec(x: KerasTensor, regmax: int = 16) -> Tuple[KerasTensor, KerasTensor]:
+    kernel = ops.reshape(
+        ops.arange(start=0, stop=regmax, dtype=backend.floatx()), (1, 1, 1, regmax, 1)
+    )
+
+    _, h, w, c = x.shape
+    x = ops.reshape(x, (-1, h, w, 4, c // 4))
+    vector_x = ops.softmax(x, -1)
+    vector_x = ops.conv(vector_x, kernel)[:, :, :, :, 0]
+
+    return x, vector_x
+
+
+def round_up(x: int, div: int = 1) -> int:
+    return x + (-x % div)
+
+
+def conv_sequence(
+    x: KerasTensor,
+    inter_channels: int,
+    out_channels: int,
+    groups: int,
+    bias_init: float,
+    name: Optional[str] = None,
+):
+    x = conv_block(x, inter_channels, 3, name=f"{name}.conv_block_1" if name else name)
+    x = conv_block(
+        x,
+        inter_channels,
+        3,
+        groups=groups,
+        name=f"{name}.conv_block_2" if name else name,
+    )
+
+    x = layers.Conv2D(
+        out_channels,
+        1,
+        groups=groups,
+        bias_initializer=initializers.Constant(bias_init),
+        name=f"{name}.conv" if name else name,
+    )(x)
+    return x
+
+
+def detection(
+    x: KerasTensor,
+    num_classes: int,
+    anchor_neck_channels: int,
+    class_neck_channles: int,
+    reg_max: int = 16,
+    use_group: bool = True,
+    name: Optional[str] = None,
+):
+    groups = 4 if use_group else 1
+    anchor_channels = 4 * reg_max
+
+    anchor_x = conv_sequence(
+        x,
+        anchor_neck_channels,
+        anchor_channels,
+        groups,
+        1.0,
+        name=f"{name}.anchor_conv" if name else name,
+    )
+    # NOTE: different from ultralytic bias initialization
+    class_x = conv_sequence(
+        x,
+        class_neck_channles,
+        num_classes,
+        1,
+        -10.0,
+        name=f"{name}.class_conv" if name else name,
+    )
+    anchor_x, vector_x = anc2vec(anchor_x, regmax=reg_max)
+    return class_x, anchor_x, vector_x
+
+
+@register_block
+def mulithead_detection(
+    x: List[KerasTensor],
+    num_classes: int,
+    reg_max: Union[int, List[int]] = 16,
+    use_group: bool = True,
+    name: Optional[str] = None,
+    **kwargs,
+):
+    if not isinstance(reg_max, list):
+        reg_max = [reg_max] * len(x)
+    min_c = x[0].shape[-1]
+    groups = 4 if use_group else 1
+
+    outs = []
+    for i, (x_in, r) in enumerate(zip(x, reg_max)):
+        anchor_channels = 4 * r
+        anchor_neck = max(round_up(min_c // 4, groups), anchor_channels, 16)
+        class_neck = max(min_c, min(num_classes * 2, 128))
+        outs.append(
+            detection(
+                x_in,
+                num_classes,
+                anchor_neck,
+                class_neck,
+                r,
+                use_group,
+                name=f"{name}.detection_head_{i}" if name else name,
+                **kwargs,
+            )
+        )
+    return outs
+
+
+@register_block
+def aconv(x: KerasTensor, out_channels: int, name: Optional[str] = None):
+    """Downsampling module combining average pooling with convolution."""
+    x = pool_block(
+        x, "avg", kernel_size=2, stride=1, name=f"{name}.pool" if name else name
+    )
+    x = conv_block(
+        x,
+        out_channels=out_channels,
+        kernel_size=3,
+        strides=2,
+        name=f"{name}.conv_block" if name else name,
+    )
+
+    return x
+
+
+@register_block
+def adown(x: KerasTensor, out_channels: int, name: Optional[str] = None):
+    half_out_channels = out_channels // 2
+    x = pool_block(
+        x, "avg", kernel_size=2, stride=1, name=f"{name}.pool_block_1" if name else name
+    )
+    x1, x2 = ops.split(x, 2, axis=3)
+    x1 = conv_block(
+        x1,
+        out_channels=half_out_channels,
+        kernel_size=3,
+        strides=2,
+        name=f"{name}.conv_block_1" if name else name,
+    )
+    x2 = pool_block(
+        x2,
+        "max",
+        kernel_size=3,
+        stride=2,
+        name=f"{name}.pool_block_2" if name else name,
+    )
+    x2 = conv_block(
+        x2,
+        out_channels=half_out_channels,
+        kernel_size=1,
+        name=f"{name}.conv_block_2" if name else name,
+    )
+    return ops.concatenate((x1, x2), axis=3)
+
+
+@register_block
+def cb_linear(
+    x: KerasTensor,
+    out_channels: List[int],
+    kernel_size: int = 1,
+    name: Optional[str] = None,
+    padding: bool = True,
+    **kwargs,
+):
+    total_out_channels = sum(out_channels)
+    channel_indices = [0] * len(out_channels)
+
+    for index, out_channel in enumerate(out_channels):
+        channel_indices[index] = channel_indices[index - 1] + out_channel
+
+    if padding:
+        x = layers.ZeroPadding2D(
+            padding=auto_pad(kernel_size, kwargs.get("dilation_rate", 1)),
+            name=f"{name}.pad" if name else name,
+        )(x)
+    x = layers.Conv2D(
+        filters=total_out_channels,
+        kernel_size=kernel_size,
+        padding="valid",
+        name=f"{name}.conv" if name else name,
+        **kwargs,
+    )(x)
+    x = ops.split(x, channel_indices, axis=3)
+
+    return x
+
+
+@register_block
+def concat(xs: List[KerasTensor], axis: int = -1) -> KerasTensor:
+    return ops.concatenate(xs, axis=axis)
+
+
+@register_block
+def upsample(
+    x: KerasTensor,
+    scale_factor: Tuple[int, int] = Kernel_Size_2D,
+    mode: str = "nearest",
+    name: Optional[str] = None,
+    **kwargs,
+):
+    return layers.UpSampling2D(
+        size=scale_factor, interpolation=mode, name=name, **kwargs
+    )(x)
