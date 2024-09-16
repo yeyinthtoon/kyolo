@@ -1,7 +1,84 @@
 from typing import List, Tuple
-
+import math
 from keras import KerasTensor, Model, ops
 
+
+def calculate_iou_tf(bbox1, bbox2, metrics="iou"):
+    """
+    Calculates IoU (Intersection over Union), DIoU, or CIoU between bounding boxes.
+
+    Args:
+        bbox1: First set of bounding boxes, shape [..., 4] or [..., A, 4].
+        bbox2: Second set of bounding boxes, shape [..., 4] or [..., B, 4].
+        metrics: The metric to calculate ("iou", "diou", "ciou"). Defaults to "iou".
+
+    Returns:
+        Tensor containing the calculated IoU/DIoU/CIoU.
+    """
+
+    metrics = metrics.lower()
+    EPS = 1e-9
+
+    bbox1 = ops.cast(bbox1, dtype="float32")
+    bbox2 = ops.cast(bbox2, dtype="float32")
+
+    # Expand dimensions if necessary for broadcasting
+    if len(bbox1.shape) == 2 and len(bbox2.shape) == 2:
+        bbox1 = ops.expand_dims(bbox1, axis=1)  # (A, 4) -> (A, 1, 4)
+        bbox2 = ops.expand_dims(bbox2, axis=0)  # (B, 4) -> (1, B, 4)
+    elif len(bbox1.shape) == 3 and len(bbox2.shape) == 3:
+        bbox1 = ops.expand_dims(bbox1, axis=2)  # (B, A, 4) -> (B, A, 1, 4)
+        bbox2 = ops.expand_dims(bbox2, axis=1)  # (B, B, 4) -> (B, 1, B, 4)
+
+    # Calculate intersection coordinates
+    xmin_inter = ops.maximum(bbox1[..., 0], bbox2[..., 0])
+    ymin_inter = ops.maximum(bbox1[..., 1], bbox2[..., 1])
+    xmax_inter = ops.minimum(bbox1[..., 2], bbox2[..., 2])
+    ymax_inter = ops.minimum(bbox1[..., 3], bbox2[..., 3])
+
+    # Calculate intersection area
+    x_min = 0.0
+    intersection_area = ops.maximum(xmax_inter - xmin_inter, [x_min]) * ops.maximum(ymax_inter - ymin_inter, [x_min])
+
+    # Calculate area of each bbox
+    area_bbox1 = (bbox1[..., 2] - bbox1[..., 0]) * (bbox1[..., 3] - bbox1[..., 1])
+    area_bbox2 = (bbox2[..., 2] - bbox2[..., 0]) * (bbox2[..., 3] - bbox2[..., 1])
+
+    # Calculate union area
+    union_area = area_bbox1 + area_bbox2 - intersection_area
+
+    # Calculate IoU
+    iou = intersection_area / (union_area + EPS)
+
+    if metrics == "iou":
+        return iou
+
+    # Calculate centroid distance
+    cx1 = (bbox1[..., 2] + bbox1[..., 0]) / 2
+    cy1 = (bbox1[..., 3] + bbox1[..., 1]) / 2
+    cx2 = (bbox2[..., 2] + bbox2[..., 0]) / 2
+    cy2 = (bbox2[..., 3] + bbox2[..., 1]) / 2
+    cent_dis = (cx1 - cx2) ** 2 + (cy1 - cy2) ** 2
+
+    # Calculate diagonal length of the smallest enclosing box
+    c_x = ops.maximum(bbox1[..., 2], bbox2[..., 2]) - ops.minimum(bbox1[..., 0], bbox2[..., 0])
+    c_y = ops.maximum(bbox1[..., 3], bbox2[..., 3]) - ops.minimum(bbox1[..., 1], bbox2[..., 1])
+    diag_dis = c_x**2 + c_y**2 + EPS
+
+    diou = iou - (cent_dis / diag_dis)
+    if metrics == "diou":
+        return diou
+
+    # Compute aspect ratio penalty term
+    arctan = ops.arctan((bbox1[..., 2] - bbox1[..., 0]) / (bbox1[..., 3] - bbox1[..., 1] + EPS)) - ops.arctan(
+        (bbox2[..., 2] - bbox2[..., 0]) / (bbox2[..., 3] - bbox2[..., 1] + EPS)
+    )
+    v = (4 / (math.pi**2)) * (arctan**2)
+    alpha = v / (v - iou + 1 + EPS)
+
+    # Compute CIoU
+    ciou = diou - alpha * v
+    return ciou
 
 def generate_anchors(image_size: List[int], strides: List[int]):
     """
