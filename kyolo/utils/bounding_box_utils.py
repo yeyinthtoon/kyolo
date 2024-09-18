@@ -38,7 +38,9 @@ def calculate_iou_tf(bbox1, bbox2, metrics="iou"):
 
     # Calculate intersection area
     x_min = 0.0
-    intersection_area = ops.maximum(xmax_inter - xmin_inter, [x_min]) * ops.maximum(ymax_inter - ymin_inter, [x_min])
+    intersection_area = ops.maximum(xmax_inter - xmin_inter, [x_min]) * ops.maximum(
+        ymax_inter - ymin_inter, [x_min]
+    )
 
     # Calculate area of each bbox
     area_bbox1 = (bbox1[..., 2] - bbox1[..., 0]) * (bbox1[..., 3] - bbox1[..., 1])
@@ -61,8 +63,12 @@ def calculate_iou_tf(bbox1, bbox2, metrics="iou"):
     cent_dis = (cx1 - cx2) ** 2 + (cy1 - cy2) ** 2
 
     # Calculate diagonal length of the smallest enclosing box
-    c_x = ops.maximum(bbox1[..., 2], bbox2[..., 2]) - ops.minimum(bbox1[..., 0], bbox2[..., 0])
-    c_y = ops.maximum(bbox1[..., 3], bbox2[..., 3]) - ops.minimum(bbox1[..., 1], bbox2[..., 1])
+    c_x = ops.maximum(bbox1[..., 2], bbox2[..., 2]) - ops.minimum(
+        bbox1[..., 0], bbox2[..., 0]
+    )
+    c_y = ops.maximum(bbox1[..., 3], bbox2[..., 3]) - ops.minimum(
+        bbox1[..., 1], bbox2[..., 1]
+    )
     diag_dis = c_x**2 + c_y**2 + EPS
 
     diou = iou - (cent_dis / diag_dis)
@@ -70,7 +76,9 @@ def calculate_iou_tf(bbox1, bbox2, metrics="iou"):
         return diou
 
     # Compute aspect ratio penalty term
-    arctan = ops.arctan((bbox1[..., 2] - bbox1[..., 0]) / (bbox1[..., 3] - bbox1[..., 1] + EPS)) - ops.arctan(
+    arctan = ops.arctan(
+        (bbox1[..., 2] - bbox1[..., 0]) / (bbox1[..., 3] - bbox1[..., 1] + EPS)
+    ) - ops.arctan(
         (bbox2[..., 2] - bbox2[..., 0]) / (bbox2[..., 3] - bbox2[..., 1] + EPS)
     )
     v = (4 / (math.pi**2)) * (arctan**2)
@@ -79,6 +87,7 @@ def calculate_iou_tf(bbox1, bbox2, metrics="iou"):
     # Compute CIoU
     ciou = diou - alpha * v
     return ciou
+
 
 def generate_anchors(image_size: List[int], strides: List[int]):
     """
@@ -167,3 +176,99 @@ class Vec2Box:
             [self.anchor_grid - lt, self.anchor_grid + rb], axis=-1
         )
         return preds_cls, preds_anc, preds_box
+
+
+class BoxMatcher:
+    def __init__(self, cfg, class_num: int, anchors: KerasTensor) -> None:
+        self.class_num = class_num
+        self.anchors = anchors
+        for attr_name in cfg:
+            setattr(self, attr_name, cfg[attr_name])
+
+    def get_valid_matrix(self, target_bbox: KerasTensor):
+        xmin, ymin, xmax, ymax = ops.split(target_bbox, [1, 2, 3], axis=-1)
+        anchors = self.anchors[None, None]
+        anchors_x, anchors_y = ops.split(anchors, [1], axis=-1)
+
+        anchors_x, anchors_y = ops.squeeze(anchors_x, -1), ops.squeeze(anchors_y, -1)
+
+        target_in_x = (xmin < anchors_x) & (anchors_x < xmax)
+        target_in_y = (ymin < anchors_y) & (anchors_y < ymax)
+
+        target_on_anchor = target_in_x & target_in_y
+        return target_on_anchor
+
+    def get_iou_matrix(self, predict_bbox, target_bbox) -> KerasTensor:
+        return ops.clip(calculate_iou_tf(target_bbox, predict_bbox, self.iou), 0, 1)
+
+    def get_cls_matrix(
+        self, predict_cls: KerasTensor, target_cls: KerasTensor
+    ) -> KerasTensor:
+        predict_cls = ops.transpose(predict_cls, (0, 2, 1))
+        target_cls = ops.repeat(target_cls, predict_cls.shape[2], 2)
+        cls_probabilities = ops.take_along_axis(predict_cls, target_cls, axis=1)
+        return cls_probabilities
+
+    def filter_topk(
+        self, target_matrix: KerasTensor, topk: int = 10
+    ) -> Tuple[KerasTensor, KerasTensor]:
+        values, indices = ops.top_k(target_matrix, topk)
+        min = ops.min(values, axis=-1)[..., None]
+
+        topk_targets = ops.where(
+            target_matrix >= min, target_matrix, ops.zeros_like(target_matrix)
+        )
+        topk_masks = topk_targets > 0
+
+        return topk_targets, topk_masks
+
+    def filter_duplicates(self, target_matrix: KerasTensor):
+        unique_indices = ops.argmax(target_matrix, axis=1)
+        return unique_indices[..., None]
+
+    def __call__(
+        self, target: KerasTensor, predict: Tuple[KerasTensor]
+    ) -> Tuple[KerasTensor, KerasTensor]:
+        predict_cls, predict_bbox = predict
+        target_cls, target_bbox = ops.split(target, [1], axis=-1)
+        target_cls = ops.maximum(0, ops.cast(target_cls, "int64"))
+
+        grid_mask = self.get_valid_matrix(target_bbox)
+        iou_mat = self.get_iou_matrix(predict_bbox, target_bbox)
+        cls_mat = self.get_cls_matrix(ops.sigmoid(predict_cls), target_cls)
+
+        grid_mask = ops.cast(grid_mask, iou_mat.dtype)
+        target_matrix = (
+            grid_mask
+            * (iou_mat ** self.factor["iou"])
+            * (cls_mat ** self.factor["cls"])
+        )
+        grid_mask = ops.cast(grid_mask, "bool")
+
+        topk_targets, topk_mask = self.filter_topk(target_matrix, topk=self.topk)
+
+        unique_indices = self.filter_duplicates(topk_targets)
+
+        valid_mask = ops.sum(grid_mask, axis=-2) * ops.sum(topk_mask, axis=-2)
+        valid_mask = ops.cast(valid_mask, "bool")
+
+        align_bbox = ops.take_along_axis(
+            target_bbox, ops.repeat(unique_indices, 4, 2), axis=1
+        )
+        align_cls = ops.squeeze(
+            ops.take_along_axis(target_cls, unique_indices, axis=1), -1
+        )
+        align_cls = ops.one_hot(align_cls, self.class_num)
+
+        max_target = ops.amax(target_matrix, axis=-1, keepdims=True)
+        max_iou = ops.amax(iou_mat, axis=-1, keepdims=True)
+        normalize_term = (target_matrix / (max_target + 1e-9)) * max_iou
+        normalize_term = ops.transpose(normalize_term, (0, 2, 1))
+        normalize_term = ops.take_along_axis(normalize_term, unique_indices, axis=2)
+
+        valid_mask = ops.cast(valid_mask, "float32")
+        align_cls = align_cls * normalize_term * valid_mask[:, :, None]
+
+        return ops.concatenate([align_cls, align_bbox], axis=-1), ops.cast(
+            valid_mask, "bool"
+        )
