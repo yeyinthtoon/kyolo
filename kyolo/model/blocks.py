@@ -1,7 +1,8 @@
-from typing import Callable, Dict, List, Optional, Tuple, TypeAlias, Union, Any
+from typing import Any, Callable, Dict, List, Optional, Tuple, TypeAlias, Union
 
-from keras import KerasTensor, activations, layers, ops, backend, initializers
+from keras import KerasTensor, activations, backend, initializers, layers, ops
 
+from kyolo.model.layers import ConstantPadding2D
 
 BLOCKS_REGISTRY: Dict[str, Callable] = {}
 
@@ -363,9 +364,10 @@ def pool_block(
     pool_classes = {"max": layers.MaxPooling2D, "avg": layers.AveragePooling2D}
 
     if padding:
-        x = layers.ZeroPadding2D(
+        x = ConstantPadding2D(
             padding=auto_pad(kernel_size, kwargs.get("dilation_rate", 1)),
-            name=f"{name}.zero_padding" if name else name,
+            constant_values=float("-inf") if method == "max" else 0,
+            name=f"{name}.padding" if name else name,
         )(x)
 
     return pool_classes[method](
