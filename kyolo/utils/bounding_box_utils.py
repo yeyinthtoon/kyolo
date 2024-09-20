@@ -1,7 +1,7 @@
 import math
 from typing import List, Tuple
 
-from keras import KerasTensor, ops
+from keras import KerasTensor, ops, backend
 
 
 def calculate_iou(bbox1, bbox2, metrics="iou"):
@@ -116,8 +116,8 @@ def get_anchors_and_scalers(
             [ops.reshape(anchor_w, -1), ops.reshape(anchor_h, -1)], axis=-1
         )
         anchors.append(anchor)
-    anchors = ops.cast(ops.concatenate(anchors, axis=0), dtype="float32")
-    scalers = ops.cast(ops.concatenate(scaler, axis=0), dtype="float32")
+    anchors = ops.cast(ops.concatenate(anchors, axis=0), dtype=backend.floatx())
+    scalers = ops.cast(ops.concatenate(scaler, axis=0), dtype=backend.floatx())
     return anchors, scalers
 
 
