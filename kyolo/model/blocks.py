@@ -650,7 +650,7 @@ def concat(xs: List[KerasTensor], axis: int = -1) -> KerasTensor:
 @register_block
 def upsample(
     x: KerasTensor,
-    scale_factor: Tuple[int, int] = Kernel_Size_2D,
+    scale_factor: Kernel_Size_2D,
     mode: str = "nearest",
     name: Optional[str] = None,
     **kwargs,
@@ -658,3 +658,32 @@ def upsample(
     return layers.UpSampling2D(
         size=scale_factor, interpolation=mode, name=name, **kwargs
     )(x)
+
+
+def flatten_predictions(
+    inputs: List[Tuple[KerasTensor, KerasTensor, KerasTensor]],
+) -> Tuple[KerasTensor, KerasTensor, KerasTensor]:
+    cls = []
+    anchors = []
+    boxes = []
+    for pred_cls, pred_anc, pred_box in inputs:
+        _, h, w, c = pred_cls.shape
+        cls.append(ops.reshape(pred_cls, (-1, h * w, c)))
+        _, h, w, r, a = pred_anc.shape
+        anchors.append(ops.reshape(pred_anc, (-1, h * w, r, a)))
+        _, h, w, x = pred_box.shape
+        boxes.append(ops.reshape(pred_box, (-1, h * w, x)))
+    cls = ops.concatenate(cls, axis=1)
+    anchors = ops.concatenate(anchors, axis=1)
+    boxes = ops.concatenate(boxes, axis=1)
+    return cls, anchors, boxes
+
+
+def get_heights_widths_from_feature_map(
+    inputs: List[Tuple[KerasTensor, KerasTensor, KerasTensor]],
+) -> List[Tuple[int, int]]:
+    shapes = []
+    for _, _, pred_box in inputs:
+        _, h, w, _ = pred_box.shape
+        shapes.append((h, w))
+    return shapes

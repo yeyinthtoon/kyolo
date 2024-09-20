@@ -2,6 +2,7 @@ from typing import List, Optional
 
 from keras import KerasTensor, ops
 from keras_cv.layers import MultiClassNonMaxSuppression
+
 from kyolo.utils.bounding_box_utils import Vec2Box
 
 

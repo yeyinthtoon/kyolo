@@ -1,10 +1,12 @@
-from typing import Any, Dict, Optional, Tuple, TypeAlias, Union
+from typing import Any, Dict, List, Optional, Tuple, TypeAlias, Union
 
 from keras import KerasTensor
 from keras.src import backend, ops
 from keras.src.layers.input_spec import InputSpec
 from keras.src.layers.layer import Layer
 from keras.src.utils import argument_validation
+
+from kyolo.utils.bounding_box_utils import get_anchors_and_scalers
 
 Kernel_Size_2D: TypeAlias = Union[int, Tuple[int, int]]
 
@@ -13,7 +15,7 @@ class ConstantPadding2D(Layer):
     def __init__(
         self,
         padding: Kernel_Size_2D = (1, 1),
-        constant_values: Optional[int] = None,
+        constant_values: Optional[Union[int, float]] = None,
         data_format: Optional[str] = None,
         **kwargs,
     ):
@@ -67,6 +69,38 @@ class ConstantPadding2D(Layer):
             "padding": self.padding,
             "data_format": self.data_format,
             "constant_values": self.constant_values,
+        }
+        base_config = super().get_config()
+        return {**base_config, **config}
+
+
+class Vec2Box(Layer):
+    def __init__(
+        self,
+        detection_head_output_shape: List[Tuple[int, int]],
+        input_size: Tuple[int, int],
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.detection_head_output_shape = detection_head_output_shape
+        self.input_size = input_size
+        self.anchors, self.scalers = get_anchors_and_scalers(
+            detection_head_output_shape, input_size
+        )
+
+    def call(self, inputs: KerasTensor) -> KerasTensor:
+        pred_ltrb = inputs * ops.reshape(self.scalers, (1, -1, 1))
+        lt, rb = ops.split(pred_ltrb, 2, axis=-1)
+        preds_box = ops.concatenate([self.anchors - lt, self.anchors + rb], axis=-1)
+        return preds_box
+
+    def compute_output_shape(self, input_shape: Tuple[int, ...]) -> Tuple[int, ...]:
+        return input_shape
+
+    def get_config(self) -> Dict[str, Any]:
+        config = {
+            "detection_head_output_shape": self.detection_head_output_shape,
+            "input_size": self.input_size,
         }
         base_config = super().get_config()
         return {**base_config, **config}

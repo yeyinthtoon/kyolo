@@ -1,9 +1,10 @@
-from typing import List, Tuple
 import math
-from keras import KerasTensor, Model, ops
+from typing import List, Tuple
+
+from keras import KerasTensor, ops
 
 
-def calculate_iou_tf(bbox1, bbox2, metrics="iou"):
+def calculate_iou(bbox1, bbox2, metrics="iou"):
     """
     Calculates IoU (Intersection over Union), DIoU, or CIoU between bounding boxes.
 
@@ -89,19 +90,19 @@ def calculate_iou_tf(bbox1, bbox2, metrics="iou"):
     return ciou
 
 
-def generate_anchors(image_size: List[int], strides: List[int]):
-    """
-    Find the anchor maps for each w, h.
+def get_anchors_and_scalers(
+    detection_head_output_shape: List[Tuple[int, int]], input_size: Tuple[int, int]
+) -> Tuple[KerasTensor, KerasTensor]:
+    def get_box_strides(
+        detection_head_output_shape: List[Tuple[int, int]], input_height: int
+    ) -> List[int]:
+        strides = []
+        for h, _ in detection_head_output_shape:
+            strides.append(input_height // h)
+        return strides
 
-    Args:
-        image_size List: the image size of augmented image size
-        strides List[8, 16, 32, ...]: the stride size for each predicted layer
-
-    Returns:
-        all_anchors [HW x 2]:
-        all_scalers [HW]: The index of the best targets for each anchors
-    """
-    img_w, img_h = image_size
+    img_w, img_h = input_size
+    strides = get_box_strides(detection_head_output_shape, img_h)
     anchors = []
     scaler = []
     for stride in strides:
@@ -115,67 +116,9 @@ def generate_anchors(image_size: List[int], strides: List[int]):
             [ops.reshape(anchor_w, -1), ops.reshape(anchor_h, -1)], axis=-1
         )
         anchors.append(anchor)
-    all_anchors = ops.cast(ops.concatenate(anchors, axis=0), dtype="float32")
-    all_scalers = ops.cast(ops.concatenate(scaler, axis=0), dtype="float32")
-    return all_anchors, all_scalers
-
-
-class Vec2Box:
-    """
-    Decodes bboxes from predictions
-    """
-
-    def __init__(
-        self,
-        model: Model,
-        anchor_cfg,
-        image_size: List[int],
-    ) -> None:
-
-        if hasattr(anchor_cfg, "strides"):
-            print(f"🈶 Found stride of model {anchor_cfg.strides}")
-            self.strides = anchor_cfg.strides
-        else:
-            print(
-                "🧸 Found no stride of model, ",
-                "performed a dummy test for auto-anchor size",
-            )
-            self.strides = self.create_auto_anchor(model, image_size)
-
-        self.anchor_grid, self.scaler = generate_anchors(image_size, self.strides)
-
-    def create_auto_anchor(self, model: Model, image_size: List[int]):
-        dummy_input = ops.zeros(1, 3, *image_size)
-        dummy_output = model.predict(dummy_input)
-        strides = []
-        for predict_head in dummy_output["MAIN"]:
-            _, _, *anchor_num = predict_head[2].shape
-            strides.append(image_size[1] // anchor_num[1])
-        return strides
-
-    def update(self, image_size: List[int]) -> None:
-        self.anchor_grid, self.scaler = generate_anchors(image_size, self.strides)
-
-    def __call__(self, preds) -> Tuple[KerasTensor, KerasTensor, KerasTensor]:
-        preds_cls, preds_anc, preds_box = [], [], []
-        for layer_output in preds:
-            pred_cls, pred_anc, pred_box = layer_output
-            _, h, w, c = pred_cls.shape
-            preds_cls.append(ops.reshape(pred_cls, (-1, h * w, c)))
-            _, h, w, r, a = pred_anc.shape
-            preds_anc.append(ops.reshape(pred_anc, (-1, h * w, r, a)))
-            _, h, w, x = pred_box.shape
-            preds_box.append(ops.reshape(pred_box, (-1, h * w, x)))
-        preds_cls = ops.concatenate(preds_cls, axis=1)
-        preds_anc = ops.concatenate(preds_anc, axis=1)
-        preds_box = ops.concatenate(preds_box, axis=1)
-
-        pred_ltrb = preds_box * ops.reshape(self.scaler, (1, -1, 1))
-        lt, rb = ops.split(pred_ltrb, 2, axis=-1)
-        preds_box = ops.concatenate(
-            [self.anchor_grid - lt, self.anchor_grid + rb], axis=-1
-        )
-        return preds_cls, preds_anc, preds_box
+    anchors = ops.cast(ops.concatenate(anchors, axis=0), dtype="float32")
+    scalers = ops.cast(ops.concatenate(scaler, axis=0), dtype="float32")
+    return anchors, scalers
 
 
 class BoxMatcher:
@@ -199,7 +142,7 @@ class BoxMatcher:
         return target_on_anchor
 
     def get_iou_matrix(self, predict_bbox, target_bbox) -> KerasTensor:
-        return ops.clip(calculate_iou_tf(target_bbox, predict_bbox, self.iou), 0, 1)
+        return ops.clip(calculate_iou(target_bbox, predict_bbox, self.iou), 0, 1)
 
     def get_cls_matrix(
         self, predict_cls: KerasTensor, target_cls: KerasTensor
@@ -212,11 +155,11 @@ class BoxMatcher:
     def filter_topk(
         self, target_matrix: KerasTensor, topk: int = 10
     ) -> Tuple[KerasTensor, KerasTensor]:
-        values, indices = ops.top_k(target_matrix, topk)
-        min = ops.min(values, axis=-1)[..., None]
+        values, _ = ops.top_k(target_matrix, topk)
+        min_v = ops.min(values, axis=-1)[..., None]
 
         topk_targets = ops.where(
-            target_matrix >= min, target_matrix, ops.zeros_like(target_matrix)
+            target_matrix >= min_v, target_matrix, ops.zeros_like(target_matrix)
         )
         topk_masks = topk_targets > 0
 
