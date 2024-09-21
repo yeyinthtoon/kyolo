@@ -564,6 +564,62 @@ def mulithead_detection(
 
 
 @register_block
+def multihead_segmentation(
+    inputs: List[KerasTensor],
+    num_classes: int,
+    num_masks: int,
+    name: Optional[str] = None,
+    **det_kwargs,
+):
+    """Mutlihead Segmentation module for Dual segment or Triple segment
+
+    Args:
+        inputs: list of keras tensors, list of input tensors
+        num_classes: integer, number of classes for the model to predict
+        num_masks: integer, number of output masks for the model
+        name: string, a prefix for names of layers used
+
+    Returns: list of keras tensors with outputs
+        from detection and segmentation heads
+    """
+    min_c = inputs[0].shape[-1]
+
+    outs = [
+        mulithead_detection(
+            inputs[:-1],
+            num_classes=num_classes,
+            name=f"{name}.detect" if name else name,
+            **det_kwargs,
+        )
+    ]
+    for i, x_in in enumerate(inputs[:-1]):
+        mask_neck = max(min_c // 4, num_masks)
+        outs.append(
+            conv_sequence(
+                x_in,
+                inter_channels=mask_neck,
+                out_channels=num_masks,
+                groups=1,
+                bias_init=1.0,
+                name=f"{name}.segment.segmentation_head_{i}" if name else name,
+            )
+        )
+    outs.append(
+        conv_block(
+            inputs[-1],
+            out_channels=num_masks,
+            kernel_size=1,
+            name=(
+                f"{name}.segment.segmentation_head_{len(outs)-1}.conv_block"
+                if name
+                else name
+            ),
+        )
+    )
+    return outs
+
+
+@register_block
 def aconv(x: KerasTensor, out_channels: int, name: Optional[str] = None):
     """Downsampling module combining average pooling with convolution."""
     x = pool_block(
