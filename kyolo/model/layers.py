@@ -5,8 +5,8 @@ from keras.src import backend, ops
 from keras.src.layers.input_spec import InputSpec
 from keras.src.layers.layer import Layer
 from keras.src.utils import argument_validation
-
 from kyolo.utils.bounding_box_utils import get_anchors_and_scalers
+from kyolo.utils.mask_utils import get_mask
 
 Kernel_Size_2D: TypeAlias = Union[int, Tuple[int, int]]
 
@@ -101,6 +101,59 @@ class Vec2Box(Layer):
         config = {
             "detection_head_output_shape": self.detection_head_output_shape,
             "input_size": self.input_size,
+        }
+        base_config = super().get_config()
+        return {**base_config, **config}
+
+
+class ProcessMask(Layer):
+    """
+    Layer for processing the segmentation masks from post NMS bounding boxes and model output
+    """
+
+    def __init__(
+        self,
+        img_size: Tuple[int, int],
+        max_detection: int = 100,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.img_size = img_size
+        self.max_detection = max_detection
+
+    def call(
+        self, inputs: List[KerasTensor], nms: Dict[str, KerasTensor]
+    ) -> KerasTensor:
+        b, _, _, m = inputs[0].shape
+        masks = ops.concatenate(
+            [
+                ops.reshape(inputs[0], (b, -1, m)),
+                ops.reshape(inputs[1], (b, -1, m)),
+                ops.reshape(inputs[2], (b, -1, m)),
+            ],
+            axis=1,
+        )
+        protos = inputs[3]
+        pred_bbox = nms["boxes"]
+        pred_masks = ops.take_along_axis(
+            masks, ops.expand_dims(nms["idx"], axis=-1), axis=1
+        )
+        masks_nms = get_mask(pred_masks, protos, pred_bbox, self.img_size)
+        masks_nms = ops.where(masks_nms > 0.5, masks_nms, 0)
+
+        return masks_nms
+
+    def compute_output_shape(
+        self, input_shape: Tuple[List[Tuple], Tuple, Tuple, Tuple]
+    ) -> Tuple[int, ...]:
+        proto_shape = input_shape[-1]
+        output_shape = (proto_shape[0], proto_shape[1], proto_shape[2], self.max_detection)
+        return output_shape
+
+    def get_config(self) -> Dict[str, Any]:
+        config = {
+            "max_detection": self.max_detection,
+            "img_size": self.img_size,
         }
         base_config = super().get_config()
         return {**base_config, **config}
