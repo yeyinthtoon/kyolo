@@ -679,7 +679,7 @@ def flatten_predictions(
     return cls, anchors, boxes
 
 
-def get_heights_widths_from_feature_map(
+def get_feature_map_shapes(
     inputs: List[Tuple[KerasTensor, KerasTensor, KerasTensor]],
 ) -> List[Tuple[int, int]]:
     shapes = []
