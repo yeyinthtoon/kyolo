@@ -1,9 +1,14 @@
+import argparse
 import re
 from typing import Dict
 
-from keras import Model
+import torch
+from hydra import compose, initialize
+from keras import Model, ops
 from numpy import ndarray
+from omegaconf import OmegaConf
 from torch import Tensor
+from kyolo.model.build import build_model
 
 VAR_NAME_MAP = {
     "conv.weight": "conv/kernel",
@@ -55,9 +60,7 @@ BLOCK_MAPS = {
         ".mask_conv.1.": ".conv_block_2.",
         ".mask_conv.2.": ".conv.",
     },
-    "adown": {
-        "_adown.conv":"_adown.conv_block_"
-    },
+    "adown": {"_adown.conv": "_adown.conv_block_"},
 }
 
 
@@ -75,10 +78,10 @@ def convert_name_torch2keras(torch_name: str, layer_map: Dict[str, str]):
     torch_ver = splitted[0]
     keras_ver = layer_map[torch_ver]
     keras_name = re.sub(
-                        rf"^{torch_ver}.",
-                        rf"{keras_ver}.",
-                        torch_name,
-                    )
+        rf"^{torch_ver}.",
+        rf"{keras_ver}.",
+        torch_name,
+    )
     # keras_name = torch_name.replace(torch_ver, keras_ver)
     for k, block_map in BLOCK_MAPS.items():
         if k in keras_ver:
@@ -136,3 +139,37 @@ def get_keras_weights(
             continue
     print(f"Numbers of weight not found:{count}")
     return ported_weights
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--torch_weights_path", help="Path to torch weights")
+    parser.add_argument("--config_path", help="Path to config file for keras model")
+    parser.add_argument("--output_path", help="Path to save keras model")
+
+    args = parser.parse_args()
+    return args
+
+
+def main(args):
+    with initialize(version_base=None, config_path=args.config_path):
+        config = compose(config_name="config.yaml")
+
+    config = OmegaConf.to_object(config)
+
+    model, layer_map = build_model(config, True, True)
+    torch_state_dict = torch.load(args.torch_weights_path)
+
+    ported_weights = get_keras_weights(model, torch_state_dict, layer_map)
+
+    for l in model.variables:
+        weight = ported_weights.get(l.path, None)
+        if weight is None:
+            raise ValueError(f"Weight not found for the variable {l.path}")
+        l.assign(ops.convert_to_tensor(weight))
+    model.save(args.output_path)
+
+
+if __name__ == "__main__":
+    port_args = parse_arguments()
+    main(port_args)
