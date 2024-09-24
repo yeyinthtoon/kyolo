@@ -1,0 +1,5 @@
+common:
+  img_size: 640
+  reg_max: 16
+  batch_size: 16
+  max_epoch: 100

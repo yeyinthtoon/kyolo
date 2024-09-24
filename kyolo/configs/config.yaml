@@ -1,0 +1,10 @@
+task: segment
+mode: train
+
+defaults:
+    - _self_
+    - common
+    - data
+    - dataset
+    - model: v9-c-seg
+    - nms

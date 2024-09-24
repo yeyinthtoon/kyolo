@@ -1,0 +1,8 @@
+dataset:
+  num_class: 80
+  train_path:
+  val_path:
+  test_path:
+  class_map:
+    0: "dent"
+    1: "scratch"

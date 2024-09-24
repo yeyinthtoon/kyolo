@@ -1,0 +1,162 @@
+model:
+  backbone:
+    b1_conv_block:
+      inputs: [input]
+      args: {out_channels: 64, kernel_size: 3, strides: 2}
+
+    b2_conv_block:
+      inputs: [b1_conv_block]
+      args: {out_channels: 128, kernel_size: 3, strides: 2}
+    b2_rep_ncspelan:
+      inputs: [b2_conv_block]
+      args: {out_channels: 256, part_channels: 128}
+
+    b3_adown:
+      inputs: [b2_rep_ncspelan]
+      args: {out_channels: 256}
+    b3_rep_ncspelan:
+      inputs: [b3_adown]
+      args: {out_channels: 512, part_channels: 256}
+
+    b4_adown:
+      inputs: [b3_rep_ncspelan]
+      args: {out_channels: 512}
+    b4_rep_ncspelan:
+      inputs: [b4_adown]
+      args: {out_channels: 512, part_channels: 512}
+
+    b5_adown:
+      inputs: [b4_rep_ncspelan]
+      args: {out_channels: 512}
+    b5_rep_ncspelan:
+      inputs: [b5_adown]
+      args: {out_channels: 512, part_channels: 512}
+
+  neck:
+    n3_sppelan:
+      inputs: [b5_rep_ncspelan]
+      args: {out_channels: 512}
+
+    n4_upsample:
+      inputs: [n3_sppelan]
+      args: {scale_factor: 2, mode: nearest}
+    n4_concat:
+      inputs: [n4_upsample, b4_rep_ncspelan]
+    n4_rep_ncspelan:
+      inputs: [n4_concat]
+      args: {out_channels: 512, part_channels: 512}
+
+    p3_upsample:
+      inputs: [n4_rep_ncspelan]
+      args: {scale_factor: 2, mode: nearest}
+    p3_concat:
+      inputs: [p3_upsample, b3_rep_ncspelan]
+
+  head:
+    p3_rep_ncspelan:
+      inputs: [p3_concat]
+      args: {out_channels: 256, part_channels: 256}
+
+    p4_adown:
+      inputs: [p3_rep_ncspelan]
+      args: {out_channels: 256}
+    p4_concat:
+      inputs: [p4_adown, n4_rep_ncspelan]
+    p4_rep_ncspelan:
+      inputs: [p4_concat]
+      args: {out_channels: 512, part_channels: 512}
+
+    p5_adown:
+      inputs: [p4_rep_ncspelan]
+      args: {out_channels: 512}
+    p5_concat:
+      inputs: [p5_adown, n3_sppelan]
+    p5_rep_ncspelan:
+      inputs: [p5_concat]
+      args: {out_channels: 512, part_channels: 512}
+
+  prediction:
+    main_multihead_detection:
+      inputs: [p3_rep_ncspelan, p4_rep_ncspelan, p5_rep_ncspelan]
+      output: true
+
+  auxiliary:
+    r3_cb_linear:
+      inputs: [b3_rep_ncspelan]
+      args: {out_channels: [256]}
+    r4_cb_linear:
+      inputs: [b4_rep_ncspelan]
+      args: {out_channels: [256, 512]}
+    r5_cb_linear:
+      inputs: [b5_rep_ncspelan]
+      args: {out_channels: [256, 512, 512]}
+
+    a1_conv_block:
+      inputs: [input]
+      args: {out_channels: 64, kernel_size: 3, strides: 2}
+
+    a2_conv_block:
+      inputs: [a1_conv_block]
+      args: {out_channels: 128, kernel_size: 3, strides: 2}
+    a2_rep_ncspelan:
+      inputs: [a2_conv_block]
+      args: {out_channels: 256, part_channels: 128}
+
+    a3_adown:
+      inputs: [a2_rep_ncspelan]
+      args: {out_channels: 256}
+    a3_cb_fuse:
+      inputs:
+      - [r3_cb_linear, r4_cb_linear, r5_cb_linear]
+      - a3_adown
+      args: {indices: [0, 0, 0]}
+    a3_rep_ncspelan:
+      inputs: [a3_cb_fuse]
+      args: {out_channels: 512, part_channels: 256}
+
+    a4_adown:
+      inputs: [a3_rep_ncspelan]
+      args: {out_channels: 512}
+    a4_cb_fuse:
+      inputs:
+      - [r4_cb_linear, r5_cb_linear]
+      - a4_adown
+      args: {indices: [1, 1]}
+    a4_rep_ncspelan:
+      inputs: [a4_cb_fuse]
+      args: {out_channels: 512, part_channels: 512}
+
+    a5_adown:
+      inputs: [a4_rep_ncspelan]
+      args: {out_channels: 512}
+    a5_cb_fuse:
+      inputs:
+      - [r5_cb_linear]
+      - a5_adown
+      args: {indices: [2]}
+    a5_rep_ncspelan:
+      inputs: [a5_cb_fuse]
+      args: {out_channels: 512, part_channels: 512}
+
+    aux_multihead_detection:
+      inputs: [a3_rep_ncspelan, a4_rep_ncspelan, a5_rep_ncspelan]
+      output: true
+
+  loss:
+    objective:
+      BCELoss: 0.5
+      BoxLoss: 7.5
+      DFLoss: 1.5
+    aux:
+      0.25
+    matcher:
+      iou: CIoU
+      topk: 10
+      factor:
+        iou: 6.0
+        cls: 0.5
+
+  optimizer:
+    name: SGD
+    args:
+      lr: 1e-4
