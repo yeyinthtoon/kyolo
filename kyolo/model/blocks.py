@@ -565,12 +565,14 @@ def mulithead_detection(
 
 @register_block
 def multihead_segmentation(
-    inputs: List[KerasTensor],
+    inputs: Tuple[List[List[KerasTensor]], KerasTensor],
     num_classes: int,
     num_masks: int,
+    reg_max: Union[int, List[int]] = 16,
     name: Optional[str] = None,
+    use_group: bool = True,
     **det_kwargs,
-):
+) -> KerasTensor:
     """Mutlihead Segmentation module for Dual segment or Triple segment
 
     Args:
@@ -579,20 +581,24 @@ def multihead_segmentation(
         num_masks: integer, number of output masks for the model
         name: string, a prefix for names of layers used
 
-    Returns: list of keras tensors with outputs
-        from detection and segmentation heads
+    Returns: output tensors from the BottleNeck block
     """
-    min_c = inputs[0].shape[-1]
+    proto_in = inputs[1]
+    min_c = 999
+    for x_in in inputs[0]:
+        min_c = min(min_c, x_in.shape[-1])
 
     outs = [
         mulithead_detection(
-            inputs[:-1],
+            inputs[0],
             num_classes=num_classes,
-            name=f"{name}.detect" if name else name,
+            reg_max=reg_max,
+            use_group= use_group,
+            name= f"{name}.detect" if name else name,
             **det_kwargs,
         )
     ]
-    for i, x_in in enumerate(inputs[:-1]):
+    for i, x_in in enumerate(inputs[0]):
         mask_neck = max(min_c // 4, num_masks)
         outs.append(
             conv_sequence(
@@ -606,17 +612,14 @@ def multihead_segmentation(
         )
     outs.append(
         conv_block(
-            inputs[-1],
+            proto_in,
             out_channels=num_masks,
             kernel_size=1,
-            name=(
-                f"{name}.segment.segmentation_head_{len(outs)-1}.conv_block"
-                if name
-                else name
-            ),
+            name=f"{name}.segment.segmentation_head_{len(outs)-1}.conv_block" if name else name,
         )
     )
     return outs
+
 
 
 @register_block
