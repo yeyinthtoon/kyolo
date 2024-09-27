@@ -122,18 +122,9 @@ class ProcessMask(Layer):
         self.max_detection = max_detection
 
     def call(
-        self, inputs: List[KerasTensor], nms: Dict[str, KerasTensor]
+        self, masks: KerasTensor, protos: KerasTensor, nms: Dict[str, KerasTensor]
     ) -> KerasTensor:
-        b, _, _, m = inputs[0].shape
-        masks = ops.concatenate(
-            [
-                ops.reshape(inputs[0], (b, -1, m)),
-                ops.reshape(inputs[1], (b, -1, m)),
-                ops.reshape(inputs[2], (b, -1, m)),
-            ],
-            axis=1,
-        )
-        protos = inputs[3]
+
         pred_bbox = nms["boxes"]
         pred_masks = ops.take_along_axis(
             masks, ops.expand_dims(nms["idx"], axis=-1), axis=1
@@ -143,11 +134,13 @@ class ProcessMask(Layer):
 
         return masks_nms
 
-    def compute_output_shape(
-        self, input_shape: Tuple[List[Tuple], Tuple, Tuple, Tuple]
-    ) -> Tuple[int, ...]:
-        proto_shape = input_shape[-1]
-        output_shape = (proto_shape[0], proto_shape[1], proto_shape[2], self.max_detection)
+    def compute_output_shape(self, input_shape: Tuple) -> Tuple[int, ...]:
+        output_shape = (
+            input_shape[0],
+            input_shape[1],
+            input_shape[2],
+            self.max_detection,
+        )
         return output_shape
 
     def get_config(self) -> Dict[str, Any]:

@@ -4,8 +4,7 @@ from typing import Dict, Optional, Union
 import keras
 from keras import Model
 from keras_cv.layers import NonMaxSuppression
-from kyolo.model.blocks import (BLOCKS_REGISTRY, flatten_predictions,
-                                get_feature_map_shapes)
+from kyolo.model.blocks import BLOCKS_REGISTRY, get_feature_map_shapes
 from kyolo.model.layers import ProcessMask, Vec2Box
 
 
@@ -23,12 +22,18 @@ def build_model(
 
     inputs = keras.Input(shape=(image_size, image_size, 3))
     model_layers = {"input": inputs}
-    for arch in model_config.keys():
+    for arch in model_config:
         if arch not in ["backbone", "neck", "head", "prediction", "auxiliary"]:
             continue
         for layer_name, layer_info in model_config[arch].items():
             ln_splitted = layer_name.split("_")
             layer_type = "_".join(ln_splitted[1:])
+            block = BLOCKS_REGISTRY[layer_type]
+            if layer_name in model_layers:
+                raise ValueError(
+                    f"Non-unique layer name ({layer_name}) found! Tags must be unique."
+                )
+
             if len(layer_info["inputs"]) > 1:
                 layer_inputs = []
                 for l_input in layer_info["inputs"]:
@@ -40,13 +45,8 @@ def build_model(
                         layer_inputs.append(model_layers[l_input])
             else:
                 layer_inputs = model_layers[layer_info["inputs"][0]]
-            if layer_name in model_layers:
-                raise ValueError(
-                    f"Non-unique layer name ({layer_name}) found! Tags must be unique."
-                )
 
             is_output = layer_info.get("output", False)
-
             layer_args = layer_info.get("args", {})
             if (
                 "multihead_detection" in layer_type
@@ -54,8 +54,6 @@ def build_model(
             ):
                 layer_args["num_classes"] = num_classes
                 layer_args["reg_max"] = common_config["reg_max"]
-
-            block = BLOCKS_REGISTRY[layer_type]
 
             if "name" in set(inspect.signature(block).parameters.keys()):
                 layer_args["name"] = f"{arch}.{layer_name}"
@@ -67,41 +65,39 @@ def build_model(
 
             if is_output:
                 tag = ln_splitted[0]
+                classes, anchors, boxes = model_layers[layer_name][:3]
+                if "multihead_segmentation" in layer_type:
+                    shapes = get_feature_map_shapes(layer_inputs[0])
+                elif "multihead_detection" in layer_type:
+                    shapes = get_feature_map_shapes(layer_inputs)
+                else:
+                    raise ValueError(f"Unsupported output layer type: {layer_type}")
+                boxes = Vec2Box(shapes, (image_size, image_size))(boxes)
+
                 if tag == "main" and not training:
                     nms_config = config["nms"]
+                    nms = NonMaxSuppression(
+                        "xyxy",
+                        True,
+                        confidence_threshold=nms_config["conf_threshold"],
+                        iou_threshold=nms_config["iou_threshold"],
+                    )(boxes, classes)
+                    pred_out = [nms]
                     if "multihead_segmentation" in layer_type:
-                        box_out = model_layers[layer_name][0]
-                        mask_out = model_layers[layer_name][1:]
-                        shapes = get_feature_map_shapes(box_out)
-                        classes, _, boxes = flatten_predictions(box_out)
-                        boxes = Vec2Box(shapes, (image_size, image_size))(boxes)
-                        nms = NonMaxSuppression(
-                            "xyxy",
-                            True,
-                            confidence_threshold=nms_config["conf_threshold"],
-                            iou_threshold=nms_config["iou_threshold"],
-                        )(boxes, classes)
-                        mask_nms = ProcessMask((image_size, image_size))(mask_out, nms)
-                        pred_out = [nms, mask_nms]
-                    elif "multihead_detection" in layer_type:
-                        box_out = model_layers[layer_name]
-                        shapes = get_feature_map_shapes(box_out)
-                        classes, _, boxes = flatten_predictions(box_out)
-                        boxes = Vec2Box(shapes, (image_size, image_size))(boxes)
-                        nms = NonMaxSuppression(
-                            "xyxy",
-                            True,
-                            confidence_threshold=nms_config["conf_threshold"],
-                            iou_threshold=nms_config["iou_threshold"],
-                        )(boxes, classes)
-                        pred_out = nms
-                    else:
-                        raise ValueError(
-                            "Only segmentation and detection heads output are allowed"
+                        masks = model_layers[layer_name][3]
+                        protos = model_layers[layer_name][4]
+                        mask_nms = ProcessMask((image_size, image_size))(
+                            masks, protos, nms
                         )
+                        pred_out.append(mask_nms)
                     outputs[tag] = pred_out
                 else:
-                    outputs[tag] = model_layers[layer_name]
+                    outputs[tag] = [
+                        classes,
+                        anchors,
+                        boxes,
+                        *model_layers[layer_name][3:],
+                    ]
     model = Model(inputs=inputs, outputs=outputs)
     if layer_map_out:
         return model, layer_map

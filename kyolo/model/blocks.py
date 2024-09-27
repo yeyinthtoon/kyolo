@@ -1,7 +1,6 @@
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypeAlias, Union
 
 from keras import KerasTensor, activations, backend, initializers, layers, ops
-
 from kyolo.model.layers import ConstantPadding2D
 
 BLOCKS_REGISTRY: Dict[str, Callable] = {}
@@ -530,7 +529,7 @@ def detection(
 
 
 @register_block
-def mulithead_detection(
+def multihead_detection(
     x: List[KerasTensor],
     num_classes: int,
     reg_max: Union[int, List[int]] = 16,
@@ -540,39 +539,49 @@ def mulithead_detection(
 ):
     if not isinstance(reg_max, list):
         reg_max = [reg_max] * len(x)
-    min_c = x[0].shape[-1]
+    min_c = 999
+    for x_in in x:
+        min_c = min(min_c, x_in.shape[-1])
     groups = 4 if use_group else 1
 
-    outs = []
+    anchors = []
+    classes = []
+    vectors = []
     for i, (x_in, r) in enumerate(zip(x, reg_max)):
         anchor_channels = 4 * r
         anchor_neck = max(round_up(min_c // 4, groups), anchor_channels, 16)
         class_neck = max(min_c, min(num_classes * 2, 128))
-        outs.append(
-            detection(
-                x_in,
-                num_classes,
-                anchor_neck,
-                class_neck,
-                r,
-                use_group,
-                name=f"{name}.detection_head_{i}" if name else name,
-                **kwargs,
-            )
+        class_x, anchor_x, vector_x = detection(
+            x_in,
+            num_classes,
+            anchor_neck,
+            class_neck,
+            r,
+            use_group,
+            name=f"{name}.detection_head_{i}" if name else name,
+            **kwargs,
         )
-    return outs
+        _, w, h, _ = class_x.shape
+        classes.append(ops.reshape(class_x, (-1, w * h, num_classes)))
+        anchors.append(ops.reshape(anchor_x, (-1, w * h, 4, r)))
+        vectors.append(ops.reshape(vector_x, (-1, w * h, 4)))
+    classes = concat(classes, axis=1)
+    anchors = concat(anchors, axis=1)
+    vectors = concat(vectors, axis=1)
+
+    return classes, anchors, vectors
 
 
 @register_block
 def multihead_segmentation(
-    inputs: Tuple[List[List[KerasTensor]], KerasTensor],
+    inputs: Tuple[List[KerasTensor], KerasTensor],
     num_classes: int,
     num_masks: int,
     reg_max: Union[int, List[int]] = 16,
     name: Optional[str] = None,
     use_group: bool = True,
     **det_kwargs,
-) -> KerasTensor:
+) -> Tuple[KerasTensor, KerasTensor, KerasTensor, KerasTensor, KerasTensor]:
     """Mutlihead Segmentation module for Dual segment or Triple segment
 
     Args:
@@ -588,38 +597,41 @@ def multihead_segmentation(
     for x_in in inputs[0]:
         min_c = min(min_c, x_in.shape[-1])
 
-    outs = [
-        mulithead_detection(
-            inputs[0],
-            num_classes=num_classes,
-            reg_max=reg_max,
-            use_group= use_group,
-            name= f"{name}.detect" if name else name,
-            **det_kwargs,
-        )
-    ]
+    classes, anchors, vectors = multihead_detection(
+        inputs[0],
+        num_classes=num_classes,
+        reg_max=reg_max,
+        use_group=use_group,
+        name=f"{name}.detect" if name else name,
+        **det_kwargs,
+    )
+
+    masks = []
     for i, x_in in enumerate(inputs[0]):
         mask_neck = max(min_c // 4, num_masks)
-        outs.append(
-            conv_sequence(
-                x_in,
-                inter_channels=mask_neck,
-                out_channels=num_masks,
-                groups=1,
-                bias_init=1.0,
-                name=f"{name}.segment.segmentation_head_{i}" if name else name,
-            )
-        )
-    outs.append(
-        conv_block(
-            proto_in,
+        mask = conv_sequence(
+            x_in,
+            inter_channels=mask_neck,
             out_channels=num_masks,
-            kernel_size=1,
-            name=f"{name}.segment.segmentation_head_{len(outs)-1}.conv_block" if name else name,
+            groups=1,
+            bias_init=1.0,
+            name=f"{name}.segment.segmentation_head_{i}" if name else name,
         )
+        _, w, h, _ = mask.shape
+        masks.append(ops.reshape(mask, (-1, w * h, num_masks)))
+    proto_out = conv_block(
+        proto_in,
+        out_channels=num_masks,
+        kernel_size=1,
+        name=(
+            f"{name}.segment.segmentation_head_{len(masks)}.conv_block"
+            if name
+            else name
+        ),
     )
-    return outs
+    masks = concat(masks, axis=1)
 
+    return classes, anchors, vectors, masks, proto_out
 
 
 @register_block
@@ -739,10 +751,10 @@ def flatten_predictions(
 
 
 def get_feature_map_shapes(
-    inputs: List[Tuple[KerasTensor, KerasTensor, KerasTensor]],
+    inputs: List[KerasTensor],
 ) -> List[Tuple[int, int]]:
     shapes = []
-    for _, _, pred_box in inputs:
+    for pred_box in inputs:
         _, h, w, _ = pred_box.shape
         shapes.append((h, w))
     return shapes
