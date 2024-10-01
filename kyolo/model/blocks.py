@@ -530,7 +530,6 @@ def detection(
 
 @register_block
 def multihead_detection(
-def multihead_detection(
     x: List[KerasTensor],
     num_classes: int,
     reg_max: Union[int, List[int]] = 16,
@@ -569,28 +568,9 @@ def multihead_detection(
         classes.append(ops.reshape(class_x, (-1, w * h, num_classes)))
         anchors.append(ops.reshape(anchor_x, (-1, w * h, 4, r)))
         vectors.append(ops.reshape(vector_x, (-1, w * h, 4)))
-    classes = concat(classes, axis=1)
-    anchors = concat(anchors, axis=1)
-    vectors = concat(vectors, axis=1)
-
-    return classes, anchors, vectors
-        class_x, anchor_x, vector_x = detection(
-            x_in,
-            num_classes,
-            anchor_neck,
-            class_neck,
-            r,
-            use_group,
-            name=f"{name}.detection_head_{i}" if name else name,
-            **kwargs,
-        )
-        _, w, h, _ = class_x.shape
-        classes.append(ops.reshape(class_x, (-1, w * h, num_classes)))
-        anchors.append(ops.reshape(anchor_x, (-1, w * h, 4, r)))
-        vectors.append(ops.reshape(vector_x, (-1, w * h, 4)))
-    classes = concat(classes, axis=1)
-    anchors = concat(anchors, axis=1)
-    vectors = concat(vectors, axis=1)
+    classes = ops.concatenate(classes, axis=1)
+    anchors = ops.concatenate(anchors, axis=1)
+    vectors = ops.concatenate(vectors, axis=1)
 
     return classes, anchors, vectors
 
@@ -598,14 +578,12 @@ def multihead_detection(
 @register_block
 def multihead_segmentation(
     inputs: Tuple[List[KerasTensor], KerasTensor],
-    inputs: Tuple[List[KerasTensor], KerasTensor],
     num_classes: int,
     num_masks: int,
     reg_max: Union[int, List[int]] = 16,
     name: Optional[str] = None,
     use_group: bool = True,
     **det_kwargs,
-) -> Tuple[KerasTensor, KerasTensor, KerasTensor, KerasTensor, KerasTensor]:
 ) -> Tuple[KerasTensor, KerasTensor, KerasTensor, KerasTensor, KerasTensor]:
     """Mutlihead Segmentation module for Dual segment or Triple segment
 
@@ -785,10 +763,8 @@ def flatten_predictions(
 
 def get_feature_map_shapes(
     inputs: List[KerasTensor],
-    inputs: List[KerasTensor],
 ) -> List[Tuple[int, int]]:
     shapes = []
-    for pred_box in inputs:
     for pred_box in inputs:
         _, h, w, _ = pred_box.shape
         shapes.append((h, w))

@@ -46,7 +46,7 @@ def dfl_loss_yolo(y_true, y_pred, anchor_norm, reg_max=16):
         [(anchor_norm - left_target), (right_target - anchor_norm)], axis=-1
     )
     target_dist = ops.clip(target_dist, 0.0, reg_max - 1.01)
-    
+
     valid_target_dist = target_dist[valid_mask_box]
     valid_pred_dist = y_pred[valid_mask_box]
 
