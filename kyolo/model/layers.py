@@ -124,7 +124,7 @@ class ProcessMask(Layer):
     def call(
         self, masks: KerasTensor, protos: KerasTensor, nms: Dict[str, KerasTensor]
     ) -> KerasTensor:
-
+        
         pred_bbox = nms["boxes"]
         pred_masks = ops.take_along_axis(
             masks, ops.expand_dims(nms["idx"], axis=-1), axis=1
@@ -150,3 +150,4 @@ class ProcessMask(Layer):
         }
         base_config = super().get_config()
         return {**base_config, **config}
+

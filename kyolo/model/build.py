@@ -4,6 +4,7 @@ from typing import Dict, Optional, Union
 import keras
 from keras import Model
 from keras_cv.layers import NonMaxSuppression
+
 from kyolo.model.blocks import BLOCKS_REGISTRY, get_feature_map_shapes
 from kyolo.model.layers import ProcessMask, Vec2Box
 
@@ -29,7 +30,7 @@ def build_model(
             ln_splitted = layer_name.split("_")
             layer_type = "_".join(ln_splitted[1:])
             block = BLOCKS_REGISTRY[layer_type]
-            if layer_name in model_layers:
+            if layer_name in model_layers.keys():
                 raise ValueError(
                     f"Non-unique layer name ({layer_name}) found! Tags must be unique."
                 )
