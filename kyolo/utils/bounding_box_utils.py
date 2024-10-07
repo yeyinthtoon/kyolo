@@ -1,6 +1,6 @@
 import math
 from dataclasses import dataclass
-from typing import List, Literal, Tuple
+from typing import List, Literal, Tuple, Union
 
 from keras import KerasTensor, backend, ops
 
@@ -293,4 +293,16 @@ def get_aligned_targets_detection(
         * ops.cast(valid_mask, normalize_term.dtype)[:, :, None]
     )
 
-    return ops.stop_gradient(align_cls), ops.stop_gradient(align_bbox), ops.stop_gradient(valid_mask)
+    return (
+        ops.stop_gradient(align_cls),
+        ops.stop_gradient(align_bbox),
+        ops.stop_gradient(valid_mask),
+    )
+
+
+def xywh2xyxy(bbox: List[Union[float, int]]) -> List[Union[float, int]]:
+    """Convert bbox from xywh format to xyxy format"""
+    x, y, w, h = bbox
+    x1, y1 = x - w / 2, y - h / 2
+    x2, y2 = x + w / 2, y + h / 2
+    return [x1, y1, x2, y2]
