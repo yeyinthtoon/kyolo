@@ -293,4 +293,4 @@ def get_aligned_targets_detection(
         * ops.cast(valid_mask, normalize_term.dtype)[:, :, None]
     )
 
-    return align_cls, align_bbox, valid_mask
+    return ops.stop_gradient(align_cls), ops.stop_gradient(align_bbox), ops.stop_gradient(valid_mask)

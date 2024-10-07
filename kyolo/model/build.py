@@ -1,5 +1,5 @@
 import inspect
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Union, Tuple
 
 import keras
 from keras import Model
@@ -7,11 +7,13 @@ from keras_cv.layers import NonMaxSuppression
 
 from kyolo.model.blocks import BLOCKS_REGISTRY, get_feature_map_shapes
 from kyolo.model.layers import ProcessMask, Vec2Box
+from kyolo.utils.bounding_box_utils import AlignerConf
+from kyolo.model.trainer import YoloV9Trainer
 
 
 def build_model(
     config, training: bool = False, layer_map_out: bool = False
-) -> Union[Model, Optional[Dict]]:
+) -> Union[Union[Model, YoloV9Trainer], Tuple[Model, Dict]]:
     num_classes = config["dataset"]["num_class"]
     model_config = config["model"]["model"]
     common_config = config["common"]
@@ -99,7 +101,20 @@ def build_model(
                         boxes,
                         *model_layers[layer_name][3:],
                     ]
-    model = Model(inputs=inputs, outputs=outputs)
+    if training:
+        aligner_config = AlignerConf(iou=config["common"].get("iou", "ciou"))
+        model = YoloV9Trainer(
+            inputs=inputs,
+            outputs=outputs,
+            head_keys=outputs.keys(),
+            feature_map_shape=shapes,
+            input_size=(image_size, image_size),
+            num_of_classes=num_classes,
+            aligner_config=aligner_config,
+            reg_max=common_config["reg_max"],
+        )
+    else:
+        model = Model(inputs=inputs, outputs=outputs)
     if layer_map_out:
         return model, layer_map
 

@@ -28,9 +28,9 @@ def box_loss_yolo(y_true, y_pred, iou="ciou"):
     valid_mask_box = ops.repeat(valid_mask, 4, -1)
     target_boxes = ops.reshape(align_box[valid_mask_box], (-1, 4))
     predict_boxes = ops.reshape(y_pred[valid_mask_box], (-1, 4))
-    iou = ops.diag(calculate_iou(predict_boxes, target_boxes, iou))
+    iou_value = ops.diag(calculate_iou(predict_boxes, target_boxes, iou))
 
-    iou_loss = ((1.0 - iou) * box_norm) / ops.sum(align_cls)
+    iou_loss = ((1.0 - iou_value) * box_norm) / ops.sum(align_cls)
     iou_loss = ops.sum(remap_to_batch(valid_mask[..., 0], iou_loss), axis=-1)
     return iou_loss
 
