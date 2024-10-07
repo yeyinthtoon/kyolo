@@ -3,10 +3,10 @@ from pathlib import Path
 
 import numpy as np
 import tensorflow as tf
-from kyolo.utils.bounding_box_utils import xywh2xyxy
-from kyolo.utils.data_utils import (tf_bytes_feature, check_corrupt_jpg,
-                                    tf_float_feature, tf_int64_feature)
 from PIL import Image, ImageDraw, ImageOps
+from kyolo.utils.bounding_box_utils import xywh2xyxy
+from kyolo.utils.data_utils import (check_corrupt_jpg, tf_bytes_feature,
+                                    tf_float_feature, tf_int64_feature)
 
 
 def get_label_features(labels, label_file, img_size, save_masks=True, save_polys=False):
@@ -113,7 +113,7 @@ def yolo2tfrec(
                     no_label += 1
                     continue
 
-                labels = label_file.read_text().strip()
+                labels = label_file.read_text(encoding="utf-8").strip()
                 if not labels:
                     print(f"Empty label file {label_file}.")
                     empty_label += 1
