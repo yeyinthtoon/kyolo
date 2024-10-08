@@ -144,8 +144,8 @@ def batched_data_process(images, labels, config):
         images = images.to_tensor(default_value=default_pad_value)
     images = tf.image.convert_image_dtype(images, tf.float32)
 
-    # classes = tf.cast(classes, tf.float32)
-    classes = tf.one_hot(labels["classes"], num_classes, dtype=tf.float32)
+    classes = tf.cast(classes, tf.float32)
+    # classes = tf.one_hot(labels["classes"], num_classes, dtype=tf.float32)
     labels["classes"] = classes.to_tensor(
         default_value=default_pad_value, shape=[None, max_detection, num_classes]
     )
@@ -178,6 +178,7 @@ def build_tfrec_dataset(tfrec_files, config):
     )
     dataset = dataset.shuffle(buffer_size=10000, reshuffle_each_iteration=True)
 
+    dataset = dataset.cache()
     decode_and_process_data_fn = partial(
         decode_and_process_data, config=config, task=config["task"]
     )
@@ -187,6 +188,5 @@ def build_tfrec_dataset(tfrec_files, config):
     dataset = dataset.ragged_batch(config["batch_size"])
     batched_data_process_fn = partial(batched_data_process, config=config)
     dataset = dataset.map(batched_data_process_fn, num_parallel_calls=tf.data.AUTOTUNE)
-    dataset = dataset.cache()
     dataset = dataset.prefetch(tf.data.AUTOTUNE)
     return dataset
