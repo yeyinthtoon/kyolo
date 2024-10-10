@@ -53,8 +53,8 @@ def calculate_iou(
 
     # Calculate intersection area
     x_min = 0.0
-    intersection_area = ops.maximum(xmax_inter - xmin_inter, [x_min]) * ops.maximum(
-        ymax_inter - ymin_inter, [x_min]
+    intersection_area = ops.maximum(xmax_inter - xmin_inter, x_min) * ops.maximum(
+        ymax_inter - ymin_inter, x_min
     )
 
     # Calculate area of each bbox
@@ -306,7 +306,7 @@ def get_aligned_targets_detection(
     align_cls = ops.squeeze(
         ops.take_along_axis(target_cls, aligned_indices, axis=1), -1
     )
-    align_cls = ops.one_hot(align_cls, number_of_classes)
+    align_cls = ops.one_hot(align_cls, number_of_classes, dtype=dtype)
 
     max_target = ops.amax(target_matrix, axis=-1, keepdims=True)
     max_iou = ops.amax(iou_matrix, axis=-1, keepdims=True)
@@ -321,12 +321,10 @@ def get_aligned_targets_detection(
     )
 
     return (
-        (
             ops.stop_gradient(align_cls),
             ops.stop_gradient(align_bbox),
             ops.stop_gradient(valid_mask),
             ops.stop_gradient(aligned_indices),
-        ),
     )
 
 

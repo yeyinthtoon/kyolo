@@ -25,8 +25,8 @@ class YoloV9Trainer(Model):
         super().__init__(**kwargs)
         self.head_keys = head_keys
         anchors, scalers = get_anchors_and_scalers(feature_map_shape, input_size)
-        self.anchors = ops.cast(anchors, self.compute_dtype)
-        self.scalers = ops.cast(scalers, self.compute_dtype)
+        self.anchors = ops.cast(anchors, self.dtype)
+        self.scalers = ops.cast(scalers, self.dtype)
         self.anchor_norm = self.anchors / self.scalers[..., None]
         self.num_of_classes = num_of_classes
         self.get_aligned_targets_detection = partial(
@@ -53,7 +53,7 @@ class YoloV9Trainer(Model):
         for head_key in self.head_keys:
             head_loss_weight = head_loss_weights.get(head_key, 1.0)
             losses[f"{head_key}_box"] = partial(
-                box_loss, dtype=self.compute_dtype, iou=box_loss_iou
+                box_loss, dtype=self.dtype, iou=box_loss_iou
             )
             losses[f"{head_key}_class"] = classification_loss
             losses[f"{head_key}_dfl"] = partial(
@@ -74,18 +74,18 @@ class YoloV9Trainer(Model):
         y_true_final = {}
         for head_key in self.head_keys:
             cls, anchors, boxes = (
-                y_pred[head_key][0],
-                y_pred[head_key][1],
-                y_pred[head_key][2],
+                ops.cast(y_pred[head_key][0], self.dtype),
+                ops.cast(y_pred[head_key][1], self.dtype),
+                ops.cast(y_pred[head_key][2], self.dtype),
             )
             align_cls, align_bbox, valid_mask, _ = self.get_aligned_targets_detection(
                 cls,
                 boxes,
-                ops.cast(y["classes"], self.compute_dtype),
-                ops.cast(y["bboxes"], self.compute_dtype),
+                y["classes"],
+                y["bboxes"],
                 self.num_of_classes,
                 self.anchors,
-                self.compute_dtype
+                self.dtype,
             )
             align_bbox = align_bbox / self.scalers[None, ..., None]
             boxes = boxes / self.scalers[None, ..., None]
