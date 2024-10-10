@@ -242,23 +242,26 @@ def get_align_indices_and_valid_mask(
     target_bbox,
     anchors,
     dtype,
-    configs: AlignerConf,
+    iou: Literal["iou", "diou", "ciou", "siou"],
+    iou_factor: float = 6,
+    cls_factor: float = 0.5,
+    topk: int = 10,
 ):
     target_anchor_mask = get_valid_matrix(anchors, target_bbox)
 
     iou_matrix = ops.clip(
-        calculate_iou(target_bbox, predict_bbox, dtype, configs.iou), 0.0, 1.0
+        calculate_iou(target_bbox, predict_bbox, dtype, iou), 0.0, 1.0
     )
 
     cls_matrix = get_cls_matrix(predict_cls, target_cls)
 
     target_matrix = (
         ops.cast(target_anchor_mask, iou_matrix.dtype)
-        * (iou_matrix**configs.iou_factor)
-        * (cls_matrix**configs.cls_factor)
+        * (iou_matrix**iou_factor)
+        * (cls_matrix**cls_factor)
     )
 
-    topk_targets, topk_mask = filter_topk(target_matrix, topk=configs.topk)
+    topk_targets, topk_mask = filter_topk(target_matrix, topk=topk)
 
     aligned_indices = filter_duplicates(topk_targets)
 
@@ -275,11 +278,25 @@ def get_aligned_targets_detection(
     number_of_classes,
     anchors,
     dtype,
-    configs: AlignerConf,
+    iou: Literal["iou", "diou", "ciou", "siou"],
+    iou_factor: float = 6,
+    cls_factor: float = 0.5,
+    topk: int = 10,
 ):
+    iou_factor = ops.convert_to_tensor(iou_factor, dtype)
+    cls_factor = ops.convert_to_tensor(cls_factor, dtype)
     aligned_indices, valid_mask, target_matrix, iou_matrix = (
         get_align_indices_and_valid_mask(
-            predict_cls, predict_bbox, target_cls, target_bbox, anchors, dtype, configs
+            predict_cls,
+            predict_bbox,
+            target_cls,
+            target_bbox,
+            anchors,
+            dtype,
+            iou,
+            iou_factor,
+            cls_factor,
+            topk,
         )
     )
 
