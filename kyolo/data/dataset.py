@@ -133,7 +133,7 @@ def decode_and_process_data(example, config, task):
 @tf.function
 def batched_data_process(images, labels, config):
     labels = labels.copy()
-    num_classes = config["num_classes"]
+    # num_classes = config["num_classes"]
     default_pad_value = config.get("default_pad_value", 0)
     max_detection = config["max_detection"]
     mask_ratio = config["mask_ratio"]
@@ -144,11 +144,11 @@ def batched_data_process(images, labels, config):
         images = images.to_tensor(default_value=default_pad_value)
     images = tf.image.convert_image_dtype(images, tf.float32)
 
-    classes = tf.cast(classes, tf.float32)
+    classes = tf.cast(labels["classes"], tf.int32)
     # classes = tf.one_hot(labels["classes"], num_classes, dtype=tf.float32)
     labels["classes"] = classes.to_tensor(
-        default_value=default_pad_value, shape=[None, max_detection, num_classes]
-    )
+        default_value=default_pad_value, shape=[None, max_detection]
+    )[:,:,None]
 
     bboxes = tf.cast(labels["bboxes"], tf.float32)
     labels["bboxes"] = bboxes.to_tensor(
@@ -176,7 +176,7 @@ def build_tfrec_dataset(tfrec_files, config):
         num_parallel_calls=tf.data.AUTOTUNE,
         deterministic=False,
     )
-    dataset = dataset.shuffle(buffer_size=10000, reshuffle_each_iteration=True)
+    dataset = dataset.shuffle(buffer_size=500, reshuffle_each_iteration=True)
 
     dataset = dataset.cache()
     decode_and_process_data_fn = partial(
