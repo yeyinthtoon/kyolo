@@ -81,8 +81,8 @@ class YoloV9Trainer(Model):
             align_cls, align_bbox, valid_mask, _ = self.get_aligned_targets_detection(
                 cls,
                 boxes,
-                y["classes"],
-                y["bboxes"],
+                ops.cast(y["classes"], self.compute_dtype),
+                ops.cast(y["bboxes"], self.compute_dtype),
                 self.num_of_classes,
                 self.anchors,
                 self.compute_dtype
