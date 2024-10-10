@@ -1,5 +1,5 @@
 import inspect
-from typing import Dict, Optional, Union, Tuple
+from typing import Dict, Union, Tuple
 
 import keras
 from keras import Model

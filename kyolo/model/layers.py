@@ -84,9 +84,11 @@ class Vec2Box(Layer):
         super().__init__(**kwargs)
         self.detection_head_output_shape = detection_head_output_shape
         self.input_size = input_size
-        self.anchors, self.scalers = get_anchors_and_scalers(
+        anchors, scalers = get_anchors_and_scalers(
             detection_head_output_shape, input_size
         )
+        self.anchors = ops.cast(anchors, self.compute_dtype)
+        self.scalers = ops.cast(scalers, self.compute_dtype)
 
     def call(self, inputs: KerasTensor) -> KerasTensor:
         pred_ltrb = inputs * ops.reshape(self.scalers, (1, -1, 1))

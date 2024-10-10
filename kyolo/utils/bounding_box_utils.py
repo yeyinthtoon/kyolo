@@ -2,7 +2,7 @@ import math
 from dataclasses import dataclass
 from typing import List, Literal, Tuple, Union
 
-from keras import KerasTensor, backend, ops
+from keras import KerasTensor, ops
 
 
 @dataclass(frozen=True)
@@ -16,7 +16,9 @@ class AlignerConf:
 def calculate_iou(
     bbox1: KerasTensor,
     bbox2: KerasTensor,
+    dtype: str,
     metrics: Literal["iou", "diou", "ciou", "siou"] = "iou",
+    pairwise: bool = True,
     eps: float = 1e-9,
 ):
     """
@@ -31,16 +33,17 @@ def calculate_iou(
         Tensor containing the calculated IoU/DIoU/CIoU.
     """
 
-    bbox1 = ops.cast(bbox1, dtype=backend.floatx())
-    bbox2 = ops.cast(bbox2, dtype=backend.floatx())
+    bbox1 = ops.cast(bbox1, dtype=dtype)
+    bbox2 = ops.cast(bbox2, dtype=dtype)
 
-    # Expand dimensions if necessary for broadcasting
-    if len(bbox1.shape) == 2 and len(bbox2.shape) == 2:
-        bbox1 = ops.expand_dims(bbox1, axis=1)  # (A, 4) -> (A, 1, 4)
-        bbox2 = ops.expand_dims(bbox2, axis=0)  # (B, 4) -> (1, B, 4)
-    elif len(bbox1.shape) == 3 and len(bbox2.shape) == 3:
-        bbox1 = ops.expand_dims(bbox1, axis=2)  # (B, A, 4) -> (B, A, 1, 4)
-        bbox2 = ops.expand_dims(bbox2, axis=1)  # (B, B, 4) -> (B, 1, B, 4)
+    if pairwise:
+        # Expand dimensions if necessary for broadcasting
+        if len(bbox1.shape) == 2 and len(bbox2.shape) == 2:
+            bbox1 = ops.expand_dims(bbox1, axis=1)  # (A, 4) -> (A, 1, 4)
+            bbox2 = ops.expand_dims(bbox2, axis=0)  # (B, 4) -> (1, B, 4)
+        elif len(bbox1.shape) == 3 and len(bbox2.shape) == 3:
+            bbox1 = ops.expand_dims(bbox1, axis=2)  # (B, A, 4) -> (B, A, 1, 4)
+            bbox2 = ops.expand_dims(bbox2, axis=1)  # (B, B, 4) -> (B, 1, B, 4)
 
     # Calculate intersection coordinates
     xmin_inter = ops.maximum(bbox1[..., 0], bbox2[..., 0])
@@ -151,8 +154,8 @@ def get_anchors_and_scalers(
             [ops.reshape(anchor_w, -1), ops.reshape(anchor_h, -1)], axis=-1
         )
         anchors.append(anchor)
-    anchors = ops.cast(ops.concatenate(anchors, axis=0), dtype=backend.floatx())
-    scalers = ops.cast(ops.concatenate(scaler, axis=0), dtype=backend.floatx())
+    anchors = ops.concatenate(anchors, axis=0)
+    scalers = ops.concatenate(scaler, axis=0)
     return anchors, scalers
 
 
@@ -233,12 +236,18 @@ def filter_duplicates(target_matrix: KerasTensor):
 
 
 def get_align_indices_and_valid_mask(
-    predict_cls, predict_bbox, target_cls, target_bbox, anchors, configs: AlignerConf
+    predict_cls,
+    predict_bbox,
+    target_cls,
+    target_bbox,
+    anchors,
+    dtype,
+    configs: AlignerConf,
 ):
     target_anchor_mask = get_valid_matrix(anchors, target_bbox)
 
     iou_matrix = ops.clip(
-        calculate_iou(target_bbox, predict_bbox, configs.iou), 0.0, 1.0
+        calculate_iou(target_bbox, predict_bbox, dtype, configs.iou), 0.0, 1.0
     )
 
     cls_matrix = get_cls_matrix(predict_cls, target_cls)
@@ -265,11 +274,12 @@ def get_aligned_targets_detection(
     target_bbox,
     number_of_classes,
     anchors,
+    dtype,
     configs: AlignerConf,
 ):
     aligned_indices, valid_mask, target_matrix, iou_matrix = (
         get_align_indices_and_valid_mask(
-            predict_cls, predict_bbox, target_cls, target_bbox, anchors, configs
+            predict_cls, predict_bbox, target_cls, target_bbox, anchors, dtype, configs
         )
     )
 
@@ -294,9 +304,12 @@ def get_aligned_targets_detection(
     )
 
     return (
-        ops.stop_gradient(align_cls),
-        ops.stop_gradient(align_bbox),
-        ops.stop_gradient(valid_mask),
+        (
+            ops.stop_gradient(align_cls),
+            ops.stop_gradient(align_bbox),
+            ops.stop_gradient(valid_mask),
+            ops.stop_gradient(aligned_indices),
+        ),
     )
 
 

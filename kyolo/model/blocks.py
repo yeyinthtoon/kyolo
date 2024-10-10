@@ -1,6 +1,8 @@
+import os
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypeAlias, Union
 
 from keras import KerasTensor, activations, backend, initializers, layers, ops
+
 from kyolo.model.layers import ConstantPadding2D
 
 BLOCKS_REGISTRY: Dict[str, Callable] = {}
@@ -46,16 +48,21 @@ def conv_block(
     **kwargs,
 ) -> KerasTensor:
     # NOTE: Keras 3 not allow custom padding
+    use_pytorch_padding = os.getenv("USE_PYTORCH_PADDING", "False").lower() == "true"
+    pad_type = "valid"
     if padding:
-        x = layers.ZeroPadding2D(
-            padding=auto_pad(kernel_size, kwargs.get("dilation_rate", 1)),
-            name=f"{name}.pad" if name else name,
-        )(x)
+        pad_type = "same"
+        if use_pytorch_padding:
+            x = layers.ZeroPadding2D(
+                padding=auto_pad(kernel_size, kwargs.get("dilation_rate", 1)),
+                name=f"{name}.pad" if name else name,
+            )(x)
+            pad_type = "valid"
 
     x = layers.Conv2D(
         filters=out_channels,
         kernel_size=kernel_size,
-        padding="valid",
+        padding=pad_type,
         use_bias=bias,
         name=f"{name}.conv" if name else name,
         **kwargs,
@@ -362,17 +369,22 @@ def pool_block(
     method = method.lower()
     pool_classes = {"max": layers.MaxPooling2D, "avg": layers.AveragePooling2D}
 
+    use_pytorch_padding = os.getenv("USE_PYTORCH_PADDING", "False").lower() == "true"
+    pad_type = "valid"
     if padding:
-        x = ConstantPadding2D(
-            padding=auto_pad(kernel_size, kwargs.get("dilation_rate", 1)),
-            constant_values=float("-inf") if method == "max" else 0,
-            name=f"{name}.padding" if name else name,
-        )(x)
+        pad_type = "same"
+        if use_pytorch_padding:
+            x = ConstantPadding2D(
+                padding=auto_pad(kernel_size, kwargs.get("dilation_rate", 1)),
+                constant_values=float("-inf") if method == "max" else 0,
+                name=f"{name}.padding" if name else name,
+            )(x)
+            pad_type = "valid"
 
     return pool_classes[method](
         pool_size=kernel_size,
         strides=stride,
-        padding="valid",
+        padding=pad_type,
         name=f"{name}.{method}_pooling" if name else name,
         **kwargs,
     )(x)
@@ -707,15 +719,21 @@ def cb_linear(
     for index, out_channel in enumerate(out_channels):
         channel_indices[index] = channel_indices[index - 1] + out_channel
 
+    use_pytorch_padding = os.getenv("USE_PYTORCH_PADDING", "False").lower() == "true"
+    pad_type = "valid"
     if padding:
-        x = layers.ZeroPadding2D(
-            padding=auto_pad(kernel_size, kwargs.get("dilation_rate", 1)),
-            name=f"{name}.pad" if name else name,
-        )(x)
+        pad_type = "same"
+        if use_pytorch_padding:
+            x = layers.ZeroPadding2D(
+                padding=auto_pad(kernel_size, kwargs.get("dilation_rate", 1)),
+                name=f"{name}.pad" if name else name,
+            )(x)
+            pad_type = "valid"
+
     x = layers.Conv2D(
         filters=total_out_channels,
         kernel_size=kernel_size,
-        padding="valid",
+        padding=pad_type,
         name=f"{name}.conv" if name else name,
         **kwargs,
     )(x)

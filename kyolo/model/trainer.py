@@ -21,13 +21,15 @@ class YoloV9Trainer(Model):
         reg_max: int,
         **kwargs,
     ):
+        super().__init__(**kwargs)
         self.head_keys = head_keys
-        self.anchors, self.scalers = get_anchors_and_scalers(feature_map_shape, input_size)
+        anchors, scalers = get_anchors_and_scalers(feature_map_shape, input_size)
+        self.anchors = ops.cast(anchors, self.compute_dtype)
+        self.scalers = ops.cast(scalers, self.compute_dtype)
         self.anchor_norm = self.anchors / self.scalers[..., None]
         self.num_of_classes = num_of_classes
         self.aligner_config = aligner_config
         self.reg_max = reg_max
-        super().__init__(**kwargs)
 
     def compile(
         self,
@@ -46,7 +48,9 @@ class YoloV9Trainer(Model):
         loss_weights = {}
         for head_key in self.head_keys:
             head_loss_weight = head_loss_weights.get(head_key, 1.0)
-            losses[f"{head_key}_box"] = partial(box_loss, iou=box_loss_iou)
+            losses[f"{head_key}_box"] = partial(
+                box_loss, dtype=self.compute_dtype, iou=box_loss_iou
+            )
             losses[f"{head_key}_class"] = classification_loss
             losses[f"{head_key}_dfl"] = partial(
                 dfl_loss, anchor_norm=self.anchor_norm, reg_max=self.reg_max
@@ -65,20 +69,23 @@ class YoloV9Trainer(Model):
         y_pred_final = {}
         y_true_final = {}
         for head_key in self.head_keys:
-            cls, anchors, boxes = y_pred[head_key]
-            align_cls, align_bbox, valid_mask = get_aligned_targets_detection(
+            cls, anchors, boxes = (
+                y_pred[head_key][0],
+                y_pred[head_key][1],
+                y_pred[head_key][2],
+            )
+            align_cls, align_bbox, valid_mask, _ = get_aligned_targets_detection(
                 cls,
                 boxes,
-                y["cls"],
-                y["boxes"],
+                y["classes"],
+                y["bboxes"],
                 self.num_of_classes,
                 self.anchors,
+                self.compute_dtype,
                 self.aligner_config,
             )
             align_bbox = align_bbox / self.scalers[None, ..., None]
-            boxes = boxes /  self.scalers[None, ..., None]
-            # _, a, _, regmax = anchors.shape
-            # anchors = ops.reshape(anchors, (-1, a, 4 * regmax))
+            boxes = boxes / self.scalers[None, ..., None]
 
             y_pred_final[f"{head_key}_box"] = boxes
             y_pred_final[f"{head_key}_dfl"] = anchors
