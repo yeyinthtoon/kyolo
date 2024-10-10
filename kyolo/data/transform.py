@@ -160,13 +160,13 @@ def _filter_invalid_boxes(boxes: Tensor, cls: Tensor, min_area: float=1e-8) -> T
     (N >= M)
 
     Args:
-        boxes: Set of bounding boxes, shape [B, N, 4]
-        cls: Set of class labels, shape [B, N, C]
+        boxes: Set of bounding boxes, shape [N, 4]
+        cls: Set of class labels, shape [N, C]
         min_area: Min area in float type to filter the boxes
 
     Returns:
-        boxes: Set of bounding boxes, shape[B, M, 4]
-        cls: Set of class labels, shape [B, M, C]
+        boxes: Set of bounding boxes, shape[M, 4]
+        cls: Set of class labels, shape [M, C]
     """
 
     boxes_area = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
@@ -179,6 +179,7 @@ def _filter_and_pad_invalid_boxes(boxes: Tensor, cls: Tensor, min_area: float=1e
     """
     Filter boxes with invalid points and
     filter boxes which are larger than min_area.
+    Pad the return boxes and classes.
 
     Args:
         boxes: Set of bounding boxes, shape [B, N, 4]
