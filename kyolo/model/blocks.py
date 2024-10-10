@@ -465,7 +465,7 @@ def cb_fuse(
 
 def anc2vec(x: KerasTensor, regmax: int = 16) -> Tuple[KerasTensor, KerasTensor]:
     kernel = ops.reshape(
-        ops.arange(start=0, stop=regmax, dtype=backend.floatx()), (1, 1, 1, regmax, 1)
+        ops.arange(start=0, stop=regmax, dtype=x.dtype), (1, 1, 1, regmax, 1)
     )
 
     _, h, w, c = x.shape

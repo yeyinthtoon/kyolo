@@ -1,5 +1,6 @@
+from dataclasses import asdict
 from functools import partial
-from typing import Dict, List, Optional, Tuple, Literal
+from typing import Dict, List, Literal, Optional, Tuple
 
 from keras import Model, ops
 
@@ -28,7 +29,10 @@ class YoloV9Trainer(Model):
         self.scalers = ops.cast(scalers, self.compute_dtype)
         self.anchor_norm = self.anchors / self.scalers[..., None]
         self.num_of_classes = num_of_classes
-        self.aligner_config = aligner_config
+        self.get_aligned_targets_detection = partial(
+            get_aligned_targets_detection, **asdict(aligner_config)
+        )
+
         self.reg_max = reg_max
 
     def compile(
@@ -74,15 +78,14 @@ class YoloV9Trainer(Model):
                 y_pred[head_key][1],
                 y_pred[head_key][2],
             )
-            align_cls, align_bbox, valid_mask, _ = get_aligned_targets_detection(
+            align_cls, align_bbox, valid_mask, _ = self.get_aligned_targets_detection(
                 cls,
                 boxes,
                 y["classes"],
                 y["bboxes"],
                 self.num_of_classes,
                 self.anchors,
-                self.compute_dtype,
-                self.aligner_config,
+                self.compute_dtype
             )
             align_bbox = align_bbox / self.scalers[None, ..., None]
             boxes = boxes / self.scalers[None, ..., None]
