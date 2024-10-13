@@ -622,16 +622,6 @@ def multihead_segmentation(
     )
 
     masks = []
-    classes, anchors, vectors = multihead_detection(
-        inputs[0],
-        num_classes=num_classes,
-        reg_max=reg_max,
-        use_group=use_group,
-        name=f"{name}.detect" if name else name,
-        **det_kwargs,
-    )
-
-    masks = []
     for i, x_in in enumerate(inputs[0]):
         mask_neck = max(min_c // 4, num_masks)
         mask = conv_sequence(
