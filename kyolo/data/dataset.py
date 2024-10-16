@@ -1,6 +1,7 @@
 from functools import partial
 
 import tensorflow as tf
+from keras import backend
 
 feature_description = {
     "image/height": tf.io.FixedLenFeature([], tf.int64),
@@ -142,20 +143,20 @@ def batched_data_process(images, labels, config):
     # images, labels = random_flip(images, labels, seed, "horizontal", prob=0.25)
     if isinstance(images, tf.RaggedTensor):
         images = images.to_tensor(default_value=default_pad_value)
-    images = tf.image.convert_image_dtype(images, tf.float32)
+    images = tf.image.convert_image_dtype(images, backend.floatx())
 
     classes = tf.cast(labels["classes"], tf.int32)
     # classes = tf.one_hot(labels["classes"], num_classes, dtype=tf.float32)
     labels["classes"] = classes.to_tensor(
         default_value=default_pad_value, shape=[None, max_detection]
-    )[:,:,None]
+    )[:, :, None]
 
-    bboxes = tf.cast(labels["bboxes"], tf.float32)
+    bboxes = tf.cast(labels["bboxes"], backend.floatx())
     labels["bboxes"] = bboxes.to_tensor(
         default_value=default_pad_value, shape=[None, max_detection, 4]
     )
     if "masks" in labels:
-        masks = tf.image.convert_image_dtype(labels["masks"], tf.float32)
+        masks = tf.image.convert_image_dtype(labels["masks"], backend.floatx())
         labels["masks"] = masks.to_tensor(
             default_value=default_pad_value,
             shape=[None, *masks.shape[1:3], max_detection],
@@ -164,10 +165,10 @@ def batched_data_process(images, labels, config):
     return images, labels
 
 
-def build_tfrec_dataset(tfrec_files, config):
+def build_tfrec_dataset(tfrec_files, config, task, mode="train", drop_remainder=True):
     dataset = tf.data.Dataset.from_tensor_slices(tfrec_files)
-
-    dataset = dataset.shuffle(buffer_size=100, reshuffle_each_iteration=True)
+    if mode == "train":
+        dataset = dataset.shuffle(buffer_size=100, reshuffle_each_iteration=True)
     dataset = dataset.interleave(
         lambda x: tf.data.TFRecordDataset(x, num_parallel_reads=tf.data.AUTOTUNE).map(
             parse_example, num_parallel_calls=tf.data.AUTOTUNE
@@ -176,16 +177,17 @@ def build_tfrec_dataset(tfrec_files, config):
         num_parallel_calls=tf.data.AUTOTUNE,
         deterministic=False,
     )
-    dataset = dataset.shuffle(buffer_size=500, reshuffle_each_iteration=True)
-
     dataset = dataset.cache()
+
+    if mode == "train":
+        dataset = dataset.shuffle(buffer_size=500, reshuffle_each_iteration=True)
     decode_and_process_data_fn = partial(
-        decode_and_process_data, config=config, task=config["task"]
+        decode_and_process_data, config=config, task=task
     )
     dataset = dataset.map(
         decode_and_process_data_fn, num_parallel_calls=tf.data.AUTOTUNE
     )
-    dataset = dataset.ragged_batch(config["batch_size"])
+    dataset = dataset.ragged_batch(config["batch_size"], drop_remainder=drop_remainder)
     batched_data_process_fn = partial(batched_data_process, config=config)
     dataset = dataset.map(batched_data_process_fn, num_parallel_calls=tf.data.AUTOTUNE)
     dataset = dataset.prefetch(tf.data.AUTOTUNE)
