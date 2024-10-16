@@ -108,3 +108,18 @@ class YoloV9Trainer(Model):
             sample_weight=self.yolo_loss_weights,
             **kwargs,
         )
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "head_keys": self.head_keys,
+                "anchors": self.anchors,
+                "scalers": self.scalers,
+                "anchor_norm": self.anchor_norm,
+                "num_of_classes": self.num_of_classes,
+                "get_aligned_targets_detection": self.get_aligned_targets_detection,
+                "reg_max": self.reg_max,
+            }
+        )
+        return config

@@ -106,7 +106,7 @@ def build_model(
         model = YoloV9Trainer(
             inputs=inputs,
             outputs=outputs,
-            head_keys=outputs.keys(),
+            head_keys=list(outputs.keys()),
             feature_map_shape=shapes,
             input_size=(image_size, image_size),
             num_of_classes=num_classes,
