@@ -1,4 +1,4 @@
-task: segment
+task: detection
 mode: train
 
 defaults:
@@ -6,5 +6,5 @@ defaults:
     - common
     - data
     - dataset
-    - model: v9-c-seg
+    - model: v9-c
     - nms

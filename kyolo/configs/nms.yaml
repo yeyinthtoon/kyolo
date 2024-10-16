@@ -1,3 +1,4 @@
 nms:
   conf_threshold: 0.3
   iou_threshold: 0.5
+  max_detection: 100

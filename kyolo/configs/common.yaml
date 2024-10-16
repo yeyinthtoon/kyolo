@@ -3,3 +3,4 @@ common:
   reg_max: 16
   batch_size: 16
   max_epoch: 100
+  seed: 100
