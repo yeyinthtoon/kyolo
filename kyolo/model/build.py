@@ -7,7 +7,6 @@ from keras_cv.layers import NonMaxSuppression
 
 from kyolo.model.blocks import BLOCKS_REGISTRY, get_feature_map_shapes
 from kyolo.model.layers import ProcessMask, Vec2Box
-from kyolo.utils.bounding_box_utils import AlignerConf
 from kyolo.model.trainer import YoloV9Trainer
 
 
@@ -102,7 +101,6 @@ def build_model(
                         *model_layers[layer_name][3:],
                     ]
     if training:
-        aligner_config = AlignerConf(iou=config["common"].get("iou", "ciou"))
         model = YoloV9Trainer(
             inputs=inputs,
             outputs=outputs,
@@ -110,7 +108,7 @@ def build_model(
             feature_map_shape=shapes,
             input_size=(image_size, image_size),
             num_of_classes=num_classes,
-            aligner_config=aligner_config,
+            iou = config["common"].get("iou", "ciou"),
             reg_max=common_config["reg_max"],
         )
     else:

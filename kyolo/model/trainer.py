@@ -5,7 +5,6 @@ from typing import Dict, List, Literal, Optional, Tuple
 from keras import Model, ops
 
 from kyolo.utils.bounding_box_utils import (
-    AlignerConf,
     get_aligned_targets_detection,
     get_anchors_and_scalers,
 )
@@ -18,22 +17,35 @@ class YoloV9Trainer(Model):
         feature_map_shape: List[Tuple[int, int]],
         input_size: Tuple[int, int],
         num_of_classes: int,
-        aligner_config: AlignerConf,
         reg_max: int,
+        iou: Literal["iou", "diou", "ciou", "siou"],
+        iou_factor: float = 6,
+        cls_factor: float = 0.5,
+        topk: int = 10,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.head_keys = head_keys
+        self.feature_map_shape = feature_map_shape
+        self.input_size = input_size
+        self.num_of_classes = num_of_classes
+        # self.aligner_config = aligner_config
+        self.reg_max = reg_max
+        self.iou = iou
+        self.iou_factor = iou_factor
+        self.cls_factor = cls_factor
+        self.topk = topk
         anchors, scalers = get_anchors_and_scalers(feature_map_shape, input_size)
         self.anchors = ops.cast(anchors, self.dtype)
         self.scalers = ops.cast(scalers, self.dtype)
         self.anchor_norm = self.anchors / self.scalers[..., None]
-        self.num_of_classes = num_of_classes
         self.get_aligned_targets_detection = partial(
-            get_aligned_targets_detection, **asdict(aligner_config)
+            get_aligned_targets_detection,
+            iou = iou,
+            iou_factor = iou_factor,
+            cls_factor = cls_factor,
+            topk = topk,
         )
-
-        self.reg_max = reg_max
 
     def compile(
         self,
@@ -50,15 +62,18 @@ class YoloV9Trainer(Model):
         head_loss_weights = {} if not head_loss_weights else head_loss_weights
         losses = {}
         loss_weights = {}
+        dtype = self.dtype
+        anchor_norm = self.anchor_norm
+        reg_max = self.reg_max
+        def _box_loss(x,y):
+            return box_loss(x,y,dtype=dtype, iou=box_loss_iou)
+        def _dfl_loss(*x):
+            return dfl_loss(*x, anchor_norm=anchor_norm, reg_max=reg_max)
         for head_key in self.head_keys:
             head_loss_weight = head_loss_weights.get(head_key, 1.0)
-            losses[f"{head_key}_box"] = partial(
-                box_loss, dtype=self.dtype, iou=box_loss_iou
-            )
+            losses[f"{head_key}_box"] = _box_loss
             losses[f"{head_key}_class"] = classification_loss
-            losses[f"{head_key}_dfl"] = partial(
-                dfl_loss, anchor_norm=self.anchor_norm, reg_max=self.reg_max
-            )
+            losses[f"{head_key}_dfl"] = _dfl_loss
             loss_weights[f"{head_key}_box"] = box_loss_weight * head_loss_weight
             loss_weights[f"{head_key}_class"] = (
                 classification_loss_weight * head_loss_weight
@@ -111,15 +126,15 @@ class YoloV9Trainer(Model):
 
     def get_config(self):
         config = super().get_config()
-        config.update(
-            {
-                "head_keys": self.head_keys,
-                "anchors": self.anchors,
-                "scalers": self.scalers,
-                "anchor_norm": self.anchor_norm,
-                "num_of_classes": self.num_of_classes,
-                "get_aligned_targets_detection": self.get_aligned_targets_detection,
-                "reg_max": self.reg_max,
-            }
-        )
+        config.update({
+            "head_keys" : self.head_keys,
+            "feature_map_shape" : self.feature_map_shape,
+            "input_size" : self.input_size,
+            "num_of_classes" : self.num_of_classes,
+            "iou" : self.iou,
+            "iou_factor" : self.iou_factor,
+            "cls_factor" : self.cls_factor,
+            "topk" : self.topk,
+            "reg_max" : self.reg_max,
+        })
         return config
