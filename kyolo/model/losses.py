@@ -111,3 +111,4 @@ def dfl_loss_yolo_jit(y_true, y_pred, anchor_norm, reg_max=16):
     dfl_loss = (dfl_loss * box_norm) / ops.sum(align_cls)
     dfl_loss = ops.sum(dfl_loss, axis=-1)
     return dfl_loss
+

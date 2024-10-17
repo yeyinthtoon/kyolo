@@ -1,6 +1,6 @@
 from dataclasses import asdict
 from functools import partial
-from typing import Dict, List, Literal, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple, Callable
 
 from keras import Model, ops
 
@@ -18,6 +18,9 @@ class YoloV9Trainer(Model):
         input_size: Tuple[int, int],
         num_of_classes: int,
         reg_max: int,
+        task: Literal["detection", "segmentation"],
+        mask_h: int,
+        mask_w: int,
         iou: Literal["iou", "diou", "ciou", "siou"],
         iou_factor: float = 6,
         cls_factor: float = 0.5,
@@ -29,7 +32,6 @@ class YoloV9Trainer(Model):
         self.feature_map_shape = feature_map_shape
         self.input_size = input_size
         self.num_of_classes = num_of_classes
-        # self.aligner_config = aligner_config
         self.reg_max = reg_max
         self.iou = iou
         self.iou_factor = iou_factor
@@ -46,6 +48,12 @@ class YoloV9Trainer(Model):
             cls_factor = cls_factor,
             topk = topk,
         )
+        self.task = task
+        if task == "segmentation" and (mask_h <= 0 or mask_w <= 0):
+            raise ValueError("mask shape not valid")
+        self.mask_h = mask_h
+        self.mask_w = mask_w
+        self.reg_max = reg_max
 
     def compile(
         self,
@@ -56,6 +64,8 @@ class YoloV9Trainer(Model):
         classification_loss_weight: float,
         dfl_loss_weight: float,
         box_loss_iou: Literal["iou", "diou", "ciou", "siou"] = "ciou",
+        segmentation_loss: Optional[Callable] = None,
+        segmentation_loss_weight: int = 1,
         head_loss_weights: Optional[Dict[str, float]] = None,
         **kwargs,
     ):
@@ -79,6 +89,13 @@ class YoloV9Trainer(Model):
                 classification_loss_weight * head_loss_weight
             )
             loss_weights[f"{head_key}_dfl"] = dfl_loss_weight * head_loss_weight
+            if self.task == "segmentation":
+                if not segmentation_loss:
+                    raise ValueError("missing segmentation loss")
+                losses[f"{head_key}_segmentation"] = segmentation_loss
+                loss_weights[f"{head_key}_segmentation"] = (
+                    segmentation_loss_weight * head_loss_weight
+                )
 
         self.yolo_loss_weights = loss_weights
         super().compile(loss=losses, **kwargs)
@@ -93,15 +110,19 @@ class YoloV9Trainer(Model):
                 ops.cast(y_pred[head_key][1], self.dtype),
                 ops.cast(y_pred[head_key][2], self.dtype),
             )
-            align_cls, align_bbox, valid_mask, _ = self.get_aligned_targets_detection(
-                cls,
-                boxes,
-                y["classes"],
-                y["bboxes"],
-                self.num_of_classes,
-                self.anchors,
-                self.dtype,
+
+            align_cls, align_bbox, valid_mask, aligned_indices = (
+                self.get_aligned_targets_detection(
+                    cls,
+                    boxes,
+                    y["classes"],
+                    y["bboxes"],
+                    self.num_of_classes,
+                    self.anchors,
+                    self.dtype,
+                )
             )
+
             align_bbox = align_bbox / self.scalers[None, ..., None]
             boxes = boxes / self.scalers[None, ..., None]
 
@@ -112,6 +133,31 @@ class YoloV9Trainer(Model):
             box_target = ops.concatenate(
                 [align_bbox, valid_mask[..., None], align_cls], axis=-1
             )
+
+            if self.task == "segmentation":
+                mask_embs, protos = (
+                    ops.cast(y_pred[head_key][3], self.dtype),
+                    ops.cast(y_pred[head_key][4], self.dtype),
+                )
+                y_pred_final[f"{head_key}_masks"] = ops.einsum(
+                    "bne,bhwe->bnhw", mask_embs, protos
+                )
+
+                aligned_indices_mask = ops.tile(
+                    aligned_indices[:, :, 0, None, None],
+                    (1, 1, self.mask_h, self.mask_w),
+                )
+                align_target_mask = ops.take_along_axis(
+                    ops.transpose(y["masks"], (0, 3, 1, 2)),
+                    aligned_indices_mask,
+                    axis=1,
+                )
+                shapes = ops.shape(align_target_mask)
+                batch = shapes[0]
+                max_predict = shapes[1]
+                align_target_mask = ops.reshape(
+                    align_target_mask, (batch, max_predict, -1)
+                )
 
             y_true_final[f"{head_key}_box"] = box_target
             y_true_final[f"{head_key}_dfl"] = box_target
