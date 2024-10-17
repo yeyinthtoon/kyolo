@@ -1,5 +1,5 @@
 import inspect
-from typing import Dict, Union, Tuple, Literal
+from typing import Dict, Literal, Tuple, Union
 
 import keras
 from keras import Model
@@ -20,7 +20,7 @@ def build_model(
     model_config = config["model"]["model"]
     common_config = config["common"]
     image_size = common_config["img_size"]
-    task = config['task']
+    task = config["task"]
     outputs = {}
     if layer_map_out:
         layer_map = {}
@@ -83,7 +83,7 @@ def build_model(
                 if tag == "main" and training and task == "segmentation":
                     protos = model_layers[layer_name][4]
                     _, mask_h, mask_w, _ = protos.shape
-                    
+
                 if tag == "main" and not training:
                     nms_config = config["nms"]
                     nms = NonMaxSuppression(
@@ -116,11 +116,11 @@ def build_model(
             feature_map_shape=shapes,
             input_size=(image_size, image_size),
             num_of_classes=num_classes,
-            iou = config["common"].get("iou", "ciou"),
+            iou=model_config["loss"]["matcher"]["iou"].lower(),
             reg_max=common_config["reg_max"],
             task=task,
             mask_w=mask_w,
-            mask_h=mask_h
+            mask_h=mask_h,
         )
     else:
         model = Model(inputs=inputs, outputs=outputs)

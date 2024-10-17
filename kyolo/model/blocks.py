@@ -638,9 +638,11 @@ def multihead_segmentation(
         proto_in,
         out_channels=num_masks,
         kernel_size=1,
-        name=f"{name}.segment.segmentation_head_{len(masks)}.conv_block"
-        if name
-        else name,
+        name=(
+            f"{name}.segment.segmentation_head_{len(masks)}.conv_block"
+            if name
+            else name
+        ),
     )
     masks = concat(masks, axis=1)
 

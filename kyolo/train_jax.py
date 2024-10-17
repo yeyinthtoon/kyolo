@@ -8,7 +8,7 @@ import numpy as np
 from keras import callbacks
 from kyolo.data.dataset import build_tfrec_dataset
 from kyolo.model.build import build_model
-from kyolo.model.losses import bce_yolo, box_loss_yolo_jit, dfl_loss_yolo_jit
+from kyolo.model.losses import bce_yolo, BoxLoss, DFLLoss
 from kyolo.utils.callbacks import PyCOCOCallback
 from omegaconf import OmegaConf
 
@@ -49,9 +49,9 @@ def main(config):
     )
     optimizer.exclude_from_weight_decay(var_names=["bn", "bias"])
     model.compile(
-        box_loss=box_loss_yolo_jit,
+        box_loss=BoxLoss,
         classification_loss=bce_yolo,
-        dfl_loss=dfl_loss_yolo_jit,
+        dfl_loss=DFLLoss,
         box_loss_weight=7.5,
         classification_loss_weight=0.5,
         dfl_loss_weight=1.5,

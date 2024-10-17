@@ -1,8 +1,8 @@
 from dataclasses import asdict
 from functools import partial
-from typing import Dict, List, Literal, Optional, Tuple, Callable
+from typing import Callable, Dict, List, Literal, Optional, Tuple
 
-from keras import Model, ops
+from keras import Model, ops, saving
 
 from kyolo.utils.bounding_box_utils import (
     get_aligned_targets_detection,
@@ -43,10 +43,10 @@ class YoloV9Trainer(Model):
         self.anchor_norm = self.anchors / self.scalers[..., None]
         self.get_aligned_targets_detection = partial(
             get_aligned_targets_detection,
-            iou = iou,
-            iou_factor = iou_factor,
-            cls_factor = cls_factor,
-            topk = topk,
+            iou=iou,
+            iou_factor=iou_factor,
+            cls_factor=cls_factor,
+            topk=topk,
         )
         self.task = task
         if task == "segmentation" and (mask_h <= 0 or mask_w <= 0):
@@ -72,18 +72,16 @@ class YoloV9Trainer(Model):
         head_loss_weights = {} if not head_loss_weights else head_loss_weights
         losses = {}
         loss_weights = {}
-        dtype = self.dtype
-        anchor_norm = self.anchor_norm
-        reg_max = self.reg_max
-        def _box_loss(x,y):
-            return box_loss(x,y,dtype=dtype, iou=box_loss_iou)
-        def _dfl_loss(*x):
-            return dfl_loss(*x, anchor_norm=anchor_norm, reg_max=reg_max)
+
         for head_key in self.head_keys:
             head_loss_weight = head_loss_weights.get(head_key, 1.0)
-            losses[f"{head_key}_box"] = _box_loss
+            losses[f"{head_key}_box"] = box_loss(
+                jit_compile=kwargs.get("jit_compile", False), iou=box_loss_iou
+            )
             losses[f"{head_key}_class"] = classification_loss
-            losses[f"{head_key}_dfl"] = _dfl_loss
+            losses[f"{head_key}_dfl"] = dfl_loss(
+                self.anchor_norm, self.reg_max, kwargs.get("jit_compile", False)
+            )
             loss_weights[f"{head_key}_box"] = box_loss_weight * head_loss_weight
             loss_weights[f"{head_key}_class"] = (
                 classification_loss_weight * head_loss_weight
@@ -172,15 +170,30 @@ class YoloV9Trainer(Model):
 
     def get_config(self):
         config = super().get_config()
-        config.update({
-            "head_keys" : self.head_keys,
-            "feature_map_shape" : self.feature_map_shape,
-            "input_size" : self.input_size,
-            "num_of_classes" : self.num_of_classes,
-            "iou" : self.iou,
-            "iou_factor" : self.iou_factor,
-            "cls_factor" : self.cls_factor,
-            "topk" : self.topk,
-            "reg_max" : self.reg_max,
-        })
+        config.update(
+            {
+                "head_keys": self.head_keys,
+                "feature_map_shape": self.feature_map_shape,
+                "input_size": self.input_size,
+                "num_of_classes": self.num_of_classes,
+                "iou": self.iou,
+                "iou_factor": self.iou_factor,
+                "cls_factor": self.cls_factor,
+                "topk": self.topk,
+                "reg_max": self.reg_max,
+                "task": self.task,
+                "mask_h": self.mask_h,
+                "mask_w": self.mask_w,
+            }
+        )
         return config
+
+    def get_compile_config(self):
+        return super().get_compile_config()
+
+    def compile_from_config(self, config):
+        config = saving.deserialize_keras_object(config)
+        super().compile(**config)
+        if hasattr(self, "optimizer") and self.built:
+            # Create optimizer variables.
+            self.optimizer.build(self.trainable_variables)

@@ -1,5 +1,6 @@
 import keras
-from keras import ops, losses
+from keras import losses, ops, saving
+
 from kyolo.utils.bounding_box_utils import calculate_iou
 
 
@@ -112,3 +113,49 @@ def dfl_loss_yolo_jit(y_true, y_pred, anchor_norm, reg_max=16):
     dfl_loss = ops.sum(dfl_loss, axis=-1)
     return dfl_loss
 
+
+@saving.register_keras_serializable()
+class BoxLoss(losses.Loss):
+    def __init__(self, jit_compile: bool = True, iou="ciou", **kwargs):
+        super().__init__(**kwargs)
+        self.jit_compile = jit_compile
+        self.iou = iou
+        if jit_compile:
+            self.loss_fn = box_loss_yolo_jit
+        else:
+            self.loss_fn = box_loss_yolo
+
+    def call(self, y_true, y_pred):
+        return self.loss_fn(y_true, y_pred, self.dtype, self.iou)
+
+    def get_config(self):
+        configs = super().get_config()
+        configs.update({"jit_compile": self.jit_compile, "iou": self.iou})
+        return configs
+
+
+@saving.register_keras_serializable()
+class DFLLoss(losses.Loss):
+    def __init__(self, anchor_norm, reg_max, jit_compile: bool = True, **kwargs):
+        super().__init__(**kwargs)
+        self.jit_compile = jit_compile
+        self.anchor_norm = anchor_norm
+        self.reg_max = reg_max
+        if jit_compile:
+            self.loss_fn = dfl_loss_yolo_jit
+        else:
+            self.loss_fn = dfl_loss_yolo
+
+    def call(self, y_true, y_pred):
+        return self.loss_fn(y_true, y_pred, self.anchor_norm, self.reg_max)
+
+    def get_config(self):
+        configs = super().get_config()
+        configs.update(
+            {
+                "jit_compile": self.jit_compile,
+                "anchor_norm": self.anchor_norm,
+                "reg_max": self.anchor_norm,
+            }
+        )
+        return configs
