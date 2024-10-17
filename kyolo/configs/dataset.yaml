@@ -1,8 +1,8 @@
 dataset:
   num_class: 80
-  train_path:
-  val_path:
-  test_path:
+  train_tfrecs:
+  val_tfrecs:
+  test_tfrecs:
   class_map:
     0: "person"
     1: "bicycle"

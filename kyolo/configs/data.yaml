@@ -4,5 +4,7 @@ data:
   default_pad_value: 0
   max_detection: ${nms.max_detection}
   seed: ${common.seed}
+  mask_ratio: 4
+  cache: false
   transforms:
     flip: 0.5

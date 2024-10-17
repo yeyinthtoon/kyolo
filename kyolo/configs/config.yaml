@@ -1,5 +1,6 @@
 task: detection
 mode: train
+save_dir: run
 
 defaults:
     - _self_
