@@ -1,3 +1,4 @@
+import numpy as np
 from keras import callbacks, ops
 from keras_cv.layers import NonMaxSuppression
 from keras_cv.src import bounding_box

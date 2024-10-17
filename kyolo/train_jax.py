@@ -13,7 +13,7 @@ from kyolo.utils.callbacks import PyCOCOCallback
 from omegaconf import OmegaConf
 
 
-@hydra.main(config_path="config", config_name="config", version_base=None)
+@hydra.main(config_path="configs", config_name="config", version_base=None)
 def main(config):
     devices = jax.devices()
     accelerator_type = jax.default_backend()
@@ -33,12 +33,12 @@ def main(config):
     train_tfrec_path = str(Path(config.dataset.train_tfrecs))
     train_tfrecs = glob.glob(f"{train_tfrec_path}*.tfrecord")
     train_dataset = build_tfrec_dataset(
-        np.asarray(train_tfrecs), data_config, config.common.task, "train"
+        np.asarray(train_tfrecs), data_config, config.task, "train"
     )
     val_tfrec_path = str(Path(config.dataset.val_tfrecs))
     val_tfrecs = glob.glob(f"{val_tfrec_path}*.tfrecord")
     val_dataset = build_tfrec_dataset(
-        np.asarray(val_tfrecs), data_config, config.common.task, "val"
+        np.asarray(val_tfrecs), data_config, config.task, "val"
     )
 
     model = build_model(OmegaConf.to_object(config), True)
@@ -57,7 +57,7 @@ def main(config):
         dfl_loss_weight=1.5,
         optimizer=optimizer,
         jit_compile=True,
-        steps_per_execution=8,
+        steps_per_execution=2,
     )
     best_ckpt_callback = callbacks.ModelCheckpoint(
         filepath=outdir / "best.keras",

@@ -137,7 +137,6 @@ def batched_data_process(images, labels, config):
     # num_classes = config["num_classes"]
     default_pad_value = config.get("default_pad_value", 0)
     max_detection = config["max_detection"]
-    mask_ratio = config["mask_ratio"]
     # seed = config["seed"]
     # images, labels = random_flip(images, labels, seed, "vertical", prob=0.25)
     # images, labels = random_flip(images, labels, seed, "horizontal", prob=0.25)
@@ -156,6 +155,7 @@ def batched_data_process(images, labels, config):
         default_value=default_pad_value, shape=[None, max_detection, 4]
     )
     if "masks" in labels:
+        mask_ratio = config["mask_ratio"]
         masks = tf.image.convert_image_dtype(labels["masks"], backend.floatx())
         labels["masks"] = masks.to_tensor(
             default_value=default_pad_value,
@@ -177,7 +177,8 @@ def build_tfrec_dataset(tfrec_files, config, task, mode="train", drop_remainder=
         num_parallel_calls=tf.data.AUTOTUNE,
         deterministic=False,
     )
-    dataset = dataset.cache()
+    if config.get("cache", False):
+        dataset = dataset.cache()
 
     if mode == "train":
         dataset = dataset.shuffle(buffer_size=500, reshuffle_each_iteration=True)
