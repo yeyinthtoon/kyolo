@@ -1,4 +1,3 @@
-import glob
 from pathlib import Path
 
 import hydra
@@ -31,12 +30,12 @@ def main(config):
 
     data_config = OmegaConf.to_object(config.data)
     train_tfrec_path = str(Path(config.dataset.train_tfrecs))
-    train_tfrecs = glob.glob(f"{train_tfrec_path}*.tfrecord")
+    train_tfrecs = list(map(str, train_tfrec_path.glob("*.tfrecord")))
     train_dataset = build_tfrec_dataset(
         np.asarray(train_tfrecs), data_config, config.task, "train"
     )
-    val_tfrec_path = str(Path(config.dataset.val_tfrecs))
-    val_tfrecs = glob.glob(f"{val_tfrec_path}*.tfrecord")
+    val_tfrec_path = Path(config.dataset.val_tfrecs)
+    val_tfrecs = list(map(str, val_tfrec_path.glob("*.tfrecord")))
     val_dataset = build_tfrec_dataset(
         np.asarray(val_tfrecs), data_config, config.task, "val"
     )
@@ -125,6 +124,7 @@ def main(config):
             callbacks.TerminateOnNaN(),
         ],
     )
+
 
 if __name__ == "__main__":
     main()
