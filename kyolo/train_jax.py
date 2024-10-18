@@ -29,7 +29,7 @@ def main(config):
         keras.mixed_precision.set_global_policy(data_type)
 
     data_config = OmegaConf.to_object(config.data)
-    train_tfrec_path = str(Path(config.dataset.train_tfrecs))
+    train_tfrec_path = Path(config.dataset.train_tfrecs)
     train_tfrecs = list(map(str, train_tfrec_path.glob("*.tfrecord")))
     train_dataset = build_tfrec_dataset(
         np.asarray(train_tfrecs), data_config, config.task, "train"
