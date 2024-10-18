@@ -13,6 +13,7 @@ from kyolo.utils.bounding_box_utils import (
 class YoloV9Trainer(Model):
     def __init__(
         self,
+        model,
         head_keys: List[str],
         feature_map_shape: List[Tuple[int, int]],
         input_size: Tuple[int, int],
@@ -28,6 +29,7 @@ class YoloV9Trainer(Model):
         **kwargs,
     ):
         super().__init__(**kwargs)
+        self.model = model
         self.head_keys = head_keys
         self.feature_map_shape = feature_map_shape
         self.input_size = input_size
@@ -54,6 +56,9 @@ class YoloV9Trainer(Model):
         self.mask_h = mask_h
         self.mask_w = mask_w
         self.reg_max = reg_max
+
+    def call(self, *args, **kwargs):
+        return self.model.call(*args, **kwargs)
 
     def compile(
         self,
@@ -172,6 +177,7 @@ class YoloV9Trainer(Model):
         config = super().get_config()
         config.update(
             {
+                "model": saving.serialize_keras_object(self.model),
                 "head_keys": self.head_keys,
                 "feature_map_shape": self.feature_map_shape,
                 "input_size": self.input_size,
@@ -190,6 +196,10 @@ class YoloV9Trainer(Model):
 
     def get_compile_config(self):
         return super().get_compile_config()
+    
+    @classmethod
+    def from_config(cls, config):
+        return cls(**saving.deserialize_keras_object(config))
 
     def compile_from_config(self, config):
         config = saving.deserialize_keras_object(config)
@@ -200,5 +210,5 @@ class YoloV9Trainer(Model):
 
     def get_build_config(self):
         return {
-            "input_shape": self.input_shape,
+            "input_shape": self.model.input_shape,
         }

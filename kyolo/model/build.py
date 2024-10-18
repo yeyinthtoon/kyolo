@@ -109,9 +109,9 @@ def build_model(
                         *model_layers[layer_name][3:],
                     ]
     if training:
+        base_model = Model(inputs=inputs, outputs=outputs)
         model = YoloV9Trainer(
-            inputs=inputs,
-            outputs=outputs,
+            model=base_model,
             head_keys=list(outputs.keys()),
             feature_map_shape=shapes,
             input_size=(image_size, image_size),
