@@ -47,6 +47,10 @@ def main(args):
     save_masks = args.save_masks
     images_per_record = args.images_per_record
     tfrec_dir = Path(args.tfrec_dir)
+    dataset_yaml = {
+        "num_class": len(label_map)
+    }
+
     for mode in ["train", "test", "val"]:
         img_files = [
             img_file
@@ -57,9 +61,18 @@ def main(args):
             print(f"No {mode} files")
             continue
         out_dir = tfrec_dir / mode
+        dataset_yaml.update({
+            f"{mode}_tfrecs" : str(out_dir)
+        })
         yolo2tfrec(
             img_files, images_per_record, label_map, out_dir, save_polys, save_masks
         )
+
+    dataset_yaml.update({
+        "class_map": label_map
+    })
+    with open(tfrec_dir/"dataset.yaml","w",encoding="utf-8") as f:
+        yaml.dump({"dataset": dataset_yaml}, f, default_flow_style=False, sort_keys=False)
 
 
 if __name__ == "__main__":
