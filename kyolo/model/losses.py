@@ -15,7 +15,7 @@ def remap_to_batch(valid_mask, values):
     batch_map = ops.reshape(batch_map, ops.shape(valid_mask))
     return batch_map
 
-
+@saving.register_keras_serializable()
 def bce_yolo(y_true, y_pred):
     bce = losses.binary_crossentropy(y_true, y_pred, from_logits=True, axis=[])
     return ops.sum(bce, axis=[1, 2]) / ops.sum(y_true)

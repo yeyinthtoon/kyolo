@@ -197,3 +197,8 @@ class YoloV9Trainer(Model):
         if hasattr(self, "optimizer") and self.built:
             # Create optimizer variables.
             self.optimizer.build(self.trainable_variables)
+
+    def get_build_config(self):
+        return {
+            "input_shape": self.input_shape,
+        }
