@@ -38,7 +38,7 @@ BLOCK_MAPS = {
         ".conv1.": ".conv_block_1.",
         ".conv5.": ".conv_block_2.",
     },
-    "mulithead_detection": {
+    "multihead_detection": {
         ".heads.": ".detection_head_",
         ".class_conv.0.": ".class_conv.conv_block_1.",
         ".class_conv.1.": ".class_conv.conv_block_2.",
@@ -158,7 +158,7 @@ def main(args):
     config = OmegaConf.to_object(config)
 
     model, layer_map = build_model(config, True, True)
-    torch_state_dict = torch.load(args.torch_weights_path)
+    torch_state_dict = torch.load(args.torch_weights_path,map_location=torch.device('cpu'))
 
     ported_weights = get_keras_weights(model, torch_state_dict, layer_map)
 
