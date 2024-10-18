@@ -43,10 +43,14 @@ def main(config):
 
     model = build_model(OmegaConf.to_object(config), True)
 
-    optimizer = keras.optimizers.AdamW(
-        learning_rate=0.001,
-        weight_decay=0.004,
-    )
+    optimizer_config = {
+        'class_name': 'AdamW',
+        'config': {
+            'learning_rate': 0.0001,
+            'weight_decay' : 0.0005,
+        }
+    }
+    optimizer = keras.optimizers.get(optimizer_config)
     optimizer.exclude_from_weight_decay(var_names=["bn", "bias"])
     model.compile(
         box_loss=box_loss_yolo_jit,

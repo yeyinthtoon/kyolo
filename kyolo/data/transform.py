@@ -206,7 +206,7 @@ def _filter_and_pad_invalid_boxes(boxes: Tensor, cls: Tensor, min_area: float=1e
     return boxes, cls
 
 
-def random_crop(images: Tensor, labels: Dict[str, Tensor], crop_height: int, crop_width: int, prob: float, seed: int) -> Tuple[Tensor, Dict[str,Tensor]]:
+def random_crop(images: Tensor, labels: Dict[str, Tensor], min_crop_ratio: float, max_crop_ratio: float, prob: float, seed: int) -> Tuple[Tensor, Dict[str,Tensor]]:
     """
     Crop the image+bounding_boxes+labels into (crop_height, crop_width) size randomly.
     Output image size will be the same as input image size.
@@ -226,53 +226,68 @@ def random_crop(images: Tensor, labels: Dict[str, Tensor], crop_height: int, cro
 
     boxes = labels.get('bboxes', None)
     cls = labels.get('classes', None)
+    cls_dtype = cls.dtype
+    masks = labels.get('masks', None)
 
-    if tf.random.uniform([], minval=0, maxval=1, dtype=tf.dtypes.float32, seed=seed) >= prob:
-        return images, labels
 
     original_height = tf.shape(images)[0]
     original_width = tf.shape(images)[1]
 
     original_height = tf.cast(original_height, boxes.dtype)
     original_width = tf.cast(original_width, boxes.dtype)
-    crop_height = tf.cast(crop_height, boxes.dtype)
-    crop_width = tf.cast(crop_width, boxes.dtype)
-
-    if crop_width > original_width or crop_height > original_height:
-        return images, labels
+    crop_height = tf.random.uniform(
+        [], 
+        original_height*min_crop_ratio, 
+        original_height*max_crop_ratio, 
+        dtype=boxes.dtype
+    )
+    crop_width = tf.random.uniform(
+        [], 
+        original_width*min_crop_ratio, 
+        original_width*max_crop_ratio, 
+        dtype=boxes.dtype
+    )
 
     left = tf.random.uniform([], 0, original_width - crop_width, dtype=boxes.dtype)
     top = tf.random.uniform([], 0, original_height - crop_height, dtype=boxes.dtype)
-
-    # augment the images
-    output_image = tf.image.crop_and_resize(
-        images[None],
+    crop_box = tf.cast(
         tf.stack([
-            top/original_height,
+            top/original_height, 
             left/original_width,
             (top+crop_height)/original_height,
-            (left+crop_width)/original_width], axis=-1)[None],
-        tf.range(1),
-        [original_height, original_width],
-        method="bilinear",
-    )
+            (left+crop_width)/original_width
+            ], axis=-1
+        ),tf.float32
+    )[None]
+
 
     # augment the masks
-    if "masks" in labels:
+    if masks:
         masks = labels['masks']
 
         masks = tf.image.crop_and_resize(
             masks[None],
-            tf.stack([
-                top/original_height,
-                left/original_width,
-                (top+crop_height)/original_height,
-                (left+crop_width)/original_width], axis=-1)[None],
+            crop_box,
             tf.range(1),
             [original_height, original_width],
             method="bilinear",
         )
         labels['masks'] = tf.cast(masks[0], tf.uint8)
+    
+    if tf.random.uniform([], minval=0, maxval=1, dtype=tf.dtypes.float32, seed=seed) >= prob:
+        return images, labels
+
+    
+    # augment the images
+    output_image = tf.image.crop_and_resize(
+        images[None],
+        crop_box,
+        tf.range(1),
+        [original_height, original_width],
+        method="bilinear",
+    )
+    output_image = tf.cast(output_image[0], tf.uint8)
+
 
     # augment the boxes and cls
     left = tf.reshape(left, [-1, 1])
@@ -291,9 +306,9 @@ def random_crop(images: Tensor, labels: Dict[str, Tensor], crop_height: int, cro
     boxes, cls = _filter_invalid_boxes(boxes, cls)
 
     labels['bboxes'] = boxes
-    labels['classes'] = tf.squeeze(cls, -1)
+    labels['classes'] = tf.cast(tf.squeeze(cls, -1),cls_dtype)
 
-    return output_image[0], labels
+    return output_image, labels
 
 
 def mosaic(images: Tensor, labels: Dict[str,Tensor], default_pad_value: int, generator: tf.random.Generator) -> Tuple[Tensor, Dict[str,Tensor]]:

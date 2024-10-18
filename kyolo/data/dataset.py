@@ -2,6 +2,7 @@ from functools import partial
 
 import tensorflow as tf
 from keras import backend
+from kyolo.data.transform import mosaic, random_hsvc, random_crop
 
 feature_description = {
     "image/height": tf.io.FixedLenFeature([], tf.int64),
@@ -121,9 +122,17 @@ def pad_and_resize_mask(image, labels, mask_ratio: int = 4):
 
 
 @tf.function
-def decode_and_process_data(example, config, task):
+def decode_and_process_data(example, config, task,mode):
     image, labels = decode_features(example, task)
     target_size = config.get("img_size", 640)
+    if mode=="train":
+        image, labels = random_crop(image,
+            labels,
+            min_crop_ratio = 0.25,
+            max_crop_ratio = 0.95,
+            prob = 0.5,
+            seed= 100)
+        image = random_hsvc(image)
     image, labels = pad_and_resize(image, labels, (target_size, target_size))
     if task == "segmentation":
         image, labels = pad_and_resize_mask(image, labels, mask_ratio=1)
@@ -132,7 +141,7 @@ def decode_and_process_data(example, config, task):
 
 
 @tf.function
-def batched_data_process(images, labels, config):
+def batched_data_process(images, labels, config, mode):
     labels = labels.copy()
     # num_classes = config["num_classes"]
     default_pad_value = config.get("default_pad_value", 0)
@@ -162,6 +171,8 @@ def batched_data_process(images, labels, config):
             shape=[None, *masks.shape[1:3], max_detection],
         )
         _, labels = pad_and_resize_mask(images, labels, mask_ratio=mask_ratio)
+    if mode=="train":
+        images,labels = mosaic(images,labels,default_pad_value,config["generator"])
     return images, labels
 
 
@@ -183,13 +194,14 @@ def build_tfrec_dataset(tfrec_files, config, task, mode="train", drop_remainder=
     if mode == "train":
         dataset = dataset.shuffle(buffer_size=500, reshuffle_each_iteration=True)
     decode_and_process_data_fn = partial(
-        decode_and_process_data, config=config, task=task
+        decode_and_process_data, config=config, task=task, mode=mode
     )
     dataset = dataset.map(
         decode_and_process_data_fn, num_parallel_calls=tf.data.AUTOTUNE
     )
+    config["generator"] = tf.random.Generator.from_seed(1234)
     dataset = dataset.ragged_batch(config["batch_size"], drop_remainder=drop_remainder)
-    batched_data_process_fn = partial(batched_data_process, config=config)
+    batched_data_process_fn = partial(batched_data_process, config=config, mode=mode)
     dataset = dataset.map(batched_data_process_fn, num_parallel_calls=tf.data.AUTOTUNE)
     dataset = dataset.prefetch(tf.data.AUTOTUNE)
     return dataset
