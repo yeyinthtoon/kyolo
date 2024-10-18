@@ -72,6 +72,7 @@ class YoloV9Trainer(Model):
         segmentation_loss: Optional[Callable] = None,
         segmentation_loss_weight: int = 1,
         head_loss_weights: Optional[Dict[str, float]] = None,
+        loss_reduction: str = "sum",
         **kwargs,
     ):
         head_loss_weights = {} if not head_loss_weights else head_loss_weights
@@ -81,11 +82,11 @@ class YoloV9Trainer(Model):
         for head_key in self.head_keys:
             head_loss_weight = head_loss_weights.get(head_key, 1.0)
             losses[f"{head_key}_box"] = box_loss(
-                jit_compile=kwargs.get("jit_compile", False), iou=box_loss_iou
+                jit_compile=kwargs.get("jit_compile", False), iou=box_loss_iou, reduction=loss_reduction,
             )
-            losses[f"{head_key}_class"] = classification_loss
+            losses[f"{head_key}_class"] = classification_loss(reduction=loss_reduction)
             losses[f"{head_key}_dfl"] = dfl_loss(
-                self.anchor_norm, self.reg_max, kwargs.get("jit_compile", False)
+                self.anchor_norm, self.reg_max, kwargs.get("jit_compile", False), reduction=loss_reduction
             )
             loss_weights[f"{head_key}_box"] = box_loss_weight * head_loss_weight
             loss_weights[f"{head_key}_class"] = (
