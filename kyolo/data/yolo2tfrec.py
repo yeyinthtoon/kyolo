@@ -71,7 +71,7 @@ def yolo2tfrec(
     img_files,
     images_per_record,
     label_map,
-    output_path_prefix,
+    output_dir,
     save_polys=False,
     save_masks=True,
 ) -> None:
@@ -82,11 +82,11 @@ def yolo2tfrec(
     tiny_images = 0
     no_label = 0
     empty_label = 0
-    if not output_path_prefix.parent.exists():
-        output_path_prefix.parent.mkdir()
+    if not output_dir.exists():
+        output_dir.mkdir(parents=True)
 
     for count, start_i in enumerate(range(0, len(img_files), images_per_record)):
-        with tf.io.TFRecordWriter(f"{output_path_prefix}_{count}.tfrecord") as writer:
+        with tf.io.TFRecordWriter(str(output_dir/f"{count}.tfrecord")) as writer:
             for img_file in img_files[start_i : start_i + images_per_record]:
                 if check_corrupt_jpg(img_file):
                     corrupt_images += 1

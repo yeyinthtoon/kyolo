@@ -16,7 +16,7 @@ def parse_arguments():
     )
     parser.add_argument("--images_per_record", type=int, help="Images per tfrec")
     parser.add_argument(
-        "--tfrec_prefix", help="Path and prefix of tfrec e.g. /data/coco"
+        "--tfrec_dir", help="Path and prefix of tfrec e.g. /data/coco"
     )
 
     args = parser.parse_args()
@@ -46,7 +46,7 @@ def main(args):
     save_polys = args.save_polys
     save_masks = args.save_masks
     images_per_record = args.images_per_record
-    tfrec_prefix = Path(args.tfrec_prefix)
+    tfrec_dir = Path(args.tfrec_dir)
     for mode in ["train", "test", "val"]:
         img_files = [
             img_file
@@ -56,9 +56,9 @@ def main(args):
         if len(img_files) < 1:
             print(f"No {mode} files")
             continue
-        prefix = tfrec_prefix.with_stem(f"{tfrec_prefix.stem}_{mode}")
+        out_dir = tfrec_dir / mode
         yolo2tfrec(
-            img_files, images_per_record, label_map, prefix, save_polys, save_masks
+            img_files, images_per_record, label_map, out_dir, save_polys, save_masks
         )
 
 
