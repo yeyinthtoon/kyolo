@@ -1,4 +1,3 @@
-import glob
 from pathlib import Path
 
 import hydra
@@ -8,7 +7,7 @@ import numpy as np
 from keras import callbacks
 from kyolo.data.dataset import build_tfrec_dataset
 from kyolo.model.build import build_model
-from kyolo.model.losses import bce_yolo, box_loss_yolo_jit, dfl_loss_yolo_jit
+from kyolo.model.losses import BCELoss, BoxLoss, DFLLoss
 from kyolo.utils.callbacks import PyCOCOCallback
 from omegaconf import OmegaConf
 
@@ -30,13 +29,13 @@ def main(config):
         keras.mixed_precision.set_global_policy(data_type)
 
     data_config = OmegaConf.to_object(config.data)
-    train_tfrec_path = str(Path(config.dataset.train_tfrecs))
-    train_tfrecs = glob.glob(f"{train_tfrec_path}/*.tfrecord")
+    train_tfrec_path = Path(config.dataset.train_tfrecs)
+    train_tfrecs = list(map(str, train_tfrec_path.glob("*.tfrecord")))
     train_dataset = build_tfrec_dataset(
         np.asarray(train_tfrecs), data_config, config.task, "train"
     )
-    val_tfrec_path = str(Path(config.dataset.val_tfrecs))
-    val_tfrecs = glob.glob(f"{val_tfrec_path}/*.tfrecord")
+    val_tfrec_path = Path(config.dataset.val_tfrecs)
+    val_tfrecs = list(map(str, val_tfrec_path.glob("*.tfrecord")))
     val_dataset = build_tfrec_dataset(
         np.asarray(val_tfrecs), data_config, config.task, "val"
     )
@@ -53,9 +52,9 @@ def main(config):
     optimizer = keras.optimizers.get(optimizer_config)
     optimizer.exclude_from_weight_decay(var_names=["bn", "bias"])
     model.compile(
-        box_loss=box_loss_yolo_jit,
-        classification_loss=bce_yolo,
-        dfl_loss=dfl_loss_yolo_jit,
+        box_loss=BoxLoss,
+        classification_loss=BCELoss,
+        dfl_loss=DFLLoss,
         box_loss_weight=7.5,
         classification_loss_weight=0.5,
         dfl_loss_weight=1.5,
@@ -129,6 +128,7 @@ def main(config):
             callbacks.TerminateOnNaN(),
         ],
     )
+
 
 if __name__ == "__main__":
     main()

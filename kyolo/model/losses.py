@@ -1,5 +1,6 @@
 import keras
-from keras import ops, losses
+from keras import losses, ops, saving
+
 from kyolo.utils.bounding_box_utils import calculate_iou
 
 
@@ -14,10 +15,10 @@ def remap_to_batch(valid_mask, values):
     batch_map = ops.reshape(batch_map, ops.shape(valid_mask))
     return batch_map
 
-
+@saving.register_keras_serializable()
 def bce_yolo(y_true, y_pred):
     bce = losses.binary_crossentropy(y_true, y_pred, from_logits=True, axis=[])
-    return ops.sum(bce, axis=[1, 2]) / ops.sum(y_true)
+    return ops.sum(bce, axis=[1, 2]) / ops.maximum(ops.sum(y_true),1.)
 
 
 def box_loss_yolo(y_true, y_pred, dtype, iou="ciou"):
@@ -30,7 +31,7 @@ def box_loss_yolo(y_true, y_pred, dtype, iou="ciou"):
     predict_boxes = ops.reshape(y_pred[valid_mask_box], (-1, 4))
     iou_value = calculate_iou(predict_boxes, target_boxes, dtype, iou, pairwise=False)
 
-    iou_loss = ((1.0 - iou_value) * box_norm) / ops.sum(align_cls)
+    iou_loss = ((1.0 - iou_value) * box_norm) / ops.maximum(ops.sum(align_cls),1.)
     iou_loss = ops.sum(remap_to_batch(valid_mask[..., 0], iou_loss), axis=-1)
     return iou_loss
 
@@ -67,7 +68,7 @@ def dfl_loss_yolo(y_true, y_pred, anchor_norm, reg_max=16):
     dfl_loss = loss_left * weight_left + loss_right * weight_right
     dfl_loss = ops.mean(ops.reshape(dfl_loss, (-1, 4)), axis=-1)
 
-    dfl_loss = (dfl_loss * box_norm) / ops.sum(align_cls)
+    dfl_loss = (dfl_loss * box_norm) / ops.maximum(ops.sum(align_cls),1.)
     dfl_loss = ops.sum(remap_to_batch(valid_mask[..., 0], dfl_loss), axis=-1)
     return dfl_loss
 
@@ -79,7 +80,7 @@ def box_loss_yolo_jit(y_true, y_pred, dtype, iou="ciou"):
     box_norm = ops.where(valid_mask[..., 0], box_norm, 0)
     iou = calculate_iou(align_box, y_pred, dtype, metrics="ciou", pairwise=False)
     iou = ops.where(valid_mask[..., 0], iou, 0)
-    iou_loss = ((1.0 - iou) * box_norm) / ops.sum(align_cls)
+    iou_loss = ((1.0 - iou) * box_norm) / ops.maximum(ops.sum(align_cls),1.)
     iou_loss = ops.sum(iou_loss, axis=-1)
     return iou_loss
 
@@ -108,6 +109,62 @@ def dfl_loss_yolo_jit(y_true, y_pred, anchor_norm, reg_max=16):
     )
     dfl_loss = loss_left * weight_left + loss_right * weight_right
     dfl_loss = ops.mean(dfl_loss, axis=-1)
-    dfl_loss = (dfl_loss * box_norm) / ops.sum(align_cls)
+    dfl_loss = (dfl_loss * box_norm) / ops.maximum(ops.sum(align_cls),1.)
     dfl_loss = ops.sum(dfl_loss, axis=-1)
     return dfl_loss
+
+
+@saving.register_keras_serializable()
+class BoxLoss(losses.Loss):
+    def __init__(self, jit_compile: bool = True, iou="ciou", **kwargs):
+        super().__init__(**kwargs)
+        self.jit_compile = jit_compile
+        self.iou = iou
+        if jit_compile:
+            self.loss_fn = box_loss_yolo_jit
+        else:
+            self.loss_fn = box_loss_yolo
+
+    def call(self, y_true, y_pred):
+        return self.loss_fn(y_true, y_pred, self.dtype, self.iou)
+
+    def get_config(self):
+        configs = super().get_config()
+        configs.update({"jit_compile": self.jit_compile, "iou": self.iou})
+        return configs
+
+
+@saving.register_keras_serializable()
+class DFLLoss(losses.Loss):
+    def __init__(self, anchor_norm, reg_max, jit_compile: bool = True, **kwargs):
+        super().__init__(**kwargs)
+        self.jit_compile = jit_compile
+        self.anchor_norm = anchor_norm
+        self.reg_max = reg_max
+        if jit_compile:
+            self.loss_fn = dfl_loss_yolo_jit
+        else:
+            self.loss_fn = dfl_loss_yolo
+
+    def call(self, y_true, y_pred):
+        return self.loss_fn(y_true, y_pred, self.anchor_norm, self.reg_max)
+
+    def get_config(self):
+        configs = super().get_config()
+        configs.update(
+            {
+                "jit_compile": self.jit_compile,
+                "anchor_norm": self.anchor_norm,
+                "reg_max": self.anchor_norm,
+            }
+        )
+        return configs
+
+@saving.register_keras_serializable()
+class BCELoss(losses.Loss):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        
+    def call(self, y_true, y_pred):
+        bce = losses.binary_crossentropy(y_true, y_pred, from_logits=True, axis=[])
+        return ops.sum(bce, axis=[1, 2]) / ops.maximum(ops.sum(y_true),1.)

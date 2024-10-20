@@ -5,6 +5,7 @@ from keras.src import backend, ops
 from keras.src.layers.input_spec import InputSpec
 from keras.src.layers.layer import Layer
 from keras.src.utils import argument_validation
+
 from kyolo.utils.bounding_box_utils import get_anchors_and_scalers
 from kyolo.utils.mask_utils import get_mask
 
@@ -126,7 +127,7 @@ class ProcessMask(Layer):
     def call(
         self, masks: KerasTensor, protos: KerasTensor, nms: Dict[str, KerasTensor]
     ) -> KerasTensor:
-        
+
         pred_bbox = nms["boxes"]
         pred_masks = ops.take_along_axis(
             masks, ops.expand_dims(nms["idx"], axis=-1), axis=1
@@ -152,4 +153,3 @@ class ProcessMask(Layer):
         }
         base_config = super().get_config()
         return {**base_config, **config}
-

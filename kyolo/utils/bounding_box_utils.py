@@ -321,10 +321,10 @@ def get_aligned_targets_detection(
     )
 
     return (
-            ops.stop_gradient(align_cls),
-            ops.stop_gradient(align_bbox),
-            ops.stop_gradient(valid_mask),
-            ops.stop_gradient(aligned_indices),
+        ops.stop_gradient(align_cls),
+        ops.stop_gradient(align_bbox),
+        ops.stop_gradient(valid_mask),
+        ops.stop_gradient(aligned_indices),
     )
 
 
@@ -334,3 +334,12 @@ def xywh2xyxy(bbox: List[Union[float, int]]) -> List[Union[float, int]]:
     x1, y1 = x - w / 2, y - h / 2
     x2, y2 = x + w / 2, y + h / 2
     return [x1, y1, x2, y2]
+
+
+def get_normalized_box_area(boxes, image_h, image_w):
+    scale = ops.array([image_w, image_h, image_w, image_h])
+    boxes = boxes / scale
+    w1 = boxes[..., 2] - boxes[..., 0]
+    h1 = boxes[..., 3] - boxes[..., 1]
+    area = w1 * h1
+    return area
