@@ -1,3 +1,5 @@
 keras-cv
 tensorflow
 keras
+jax
+pycocotools
