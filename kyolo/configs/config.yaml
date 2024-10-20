@@ -2,6 +2,11 @@ task: detection
 mode: train
 save_dir: run
 
+hydra:
+    run:
+        dir: ${save_dir}
+    output_subdir: configs
+
 defaults:
     - _self_
     - common

@@ -111,7 +111,7 @@ def get_keras_weights(
 ) -> Dict[str, ndarray]:
     ported_weights = {}
     count = 0
-    keras_weights = [var.path for var in model.variables]
+    keras_weights = [var.path for var in model.model.variables]
     torch_weights = [
         k
         for k in list(torch_state_dict.keys())
@@ -121,7 +121,7 @@ def get_keras_weights(
         kw = convert_name_torch2keras(tw, layer_map)
         if kw in keras_weights:
             layer, variable = kw.split("/")
-            k_var = getattr(model.get_layer(layer), variable).numpy()
+            k_var = getattr(model.model.get_layer(layer), variable).numpy()
             if isinstance(k_var, tuple):
                 k_shape = k_var[0].shape
             else:
@@ -162,7 +162,7 @@ def main(args):
 
     ported_weights = get_keras_weights(model, torch_state_dict, layer_map)
 
-    for l in model.variables:
+    for l in model.model.variables:
         weight = ported_weights.get(l.path, None)
         if weight is None:
             raise ValueError(f"Weight not found for the variable {l.path}")
