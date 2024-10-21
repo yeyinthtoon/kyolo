@@ -1,7 +1,7 @@
 data:
   img_size: ${common.img_size}
   batch_size: ${common.batch_size}
-  default_pad_value: 0
+  default_pad_value: -1
   max_detection: ${nms.max_detection}
   seed: ${common.seed}
   mask_ratio: 4
@@ -9,9 +9,9 @@ data:
   mosaic: true
   transforms:
     random_crop:
-      min_crop_ratio: 0.2
+      min_crop_ratio: 0.5
       max_crop_ratio: 0.9
-      prob: 0.5
+      prob: 0.25
       seed: ${data.seed}
 
     random_hsvc:
@@ -30,8 +30,8 @@ data:
   batched_transform:
     random_flip_vertical:
       seed: ${data.seed}
-      prob: 0.5
+      prob: 0.25
 
     random_flip_horizontal:
       seed: ${data.seed}
-      prob: 0.5
+      prob: 0.25
