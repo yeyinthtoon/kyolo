@@ -47,7 +47,7 @@ class PyCOCOCallback(callbacks.Callback):
         self.nms_iou = nms_iou
         self.pred_key = pred_key
         self.nms = NonMaxSuppression(
-            "xyxy",
+            bounding_box_format,
             True,
             confidence_threshold=nms_conf,
             iou_threshold=nms_iou,
@@ -60,20 +60,21 @@ class PyCOCOCallback(callbacks.Callback):
 
         def images_only(data, maybe_boxes=None):
             if maybe_boxes is None:
-                images, boxes = unpack_input(data)
+                images, _ = data
             else:
                 images = data
             return images
 
         def boxes_only(data, maybe_boxes=None):
             if maybe_boxes is None:
-                images, boxes = unpack_input(data)
+                _, boxes = data
             else:
                 boxes = maybe_boxes
             return boxes
 
         images_only_ds = self.val_data.map(images_only)
         y_pred_ = self.model.predict(images_only_ds)[self.pred_key]
+
         y_pred = self.nms(y_pred_[2], y_pred_[0])
         box_pred = y_pred["boxes"]
         cls_pred = ops.convert_to_numpy(y_pred["classes"])
@@ -103,8 +104,12 @@ class PyCOCOCallback(callbacks.Callback):
         )
 
         source_ids = np.char.mod("%d", np.linspace(1, total_images, total_images))
-        num_detections = ops.sum(ops.cast(gt_classes > 0, "int32"), axis=-1)
-
+        num_detections = ops.count_nonzero(
+            ops.cast(
+                ops.sum(np.array(gt_boxes) > 0,axis=-1),
+                "bool"
+            ), axis=-1
+        )
         ground_truth = {
             "source_id": [source_ids],
             "height": [
@@ -117,7 +122,6 @@ class PyCOCOCallback(callbacks.Callback):
             "boxes": [ops.convert_to_numpy(gt_boxes)],
             "classes": [ops.convert_to_numpy(gt_classes)],
         }
-
         box_pred = bounding_box.convert_format(
             box_pred, source=self.bounding_box_format, target="yxyx"
         )
