@@ -61,36 +61,3 @@ def get_mask(
     filtered_masks = masks * mask_filter
 
     return filtered_masks
-
-
-def generate_bbox_mask(bboxes, mask_h, mask_w, image_h, image_w, dtype):
-    scale = ops.array(
-        [mask_w / image_w, mask_h / image_h, mask_w / image_w, mask_h / image_h]
-    )
-
-    bboxes = bboxes * scale
-    y, x = ops.meshgrid(
-        ops.arange(mask_h, dtype=dtype),
-        ops.arange(mask_w, dtype=dtype),
-        indexing="ij",
-    )
-    max_detect = ops.shape(bboxes)[1]
-    batch = ops.shape(bboxes)[0]
-    x = x[None, :, :, None]
-    y = y[None, :, :, None]
-
-    x = ops.broadcast_to(x, [batch, mask_h, mask_w, max_detect])
-    y = ops.broadcast_to(y, [batch, mask_h, mask_w, max_detect])
-
-    xmin, ymin, xmax, ymax = ops.unstack(bboxes, axis=-1)
-
-    # Reshape for broadcasting
-    xmin = xmin[:, None, None, :]
-    ymin = ymin[:, None, None, :]
-    xmax = xmax[:, None, None, :]
-    ymax = ymax[:, None, None, :]
-    mask = ops.logical_and(
-        ops.logical_and(x >= xmin, x < xmax), ops.logical_and(y >= ymin, y < ymax)
-    )
-    mask = ops.cast(mask, dtype)
-    return mask
