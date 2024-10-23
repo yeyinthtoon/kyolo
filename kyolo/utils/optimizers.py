@@ -8,20 +8,16 @@ class MultiLRAdam(optimizers.Adam):
     def __init__(self, learning_rates, learning_rate=0.001, *args, **kwargs):
         super().__init__(learning_rate=learning_rate, *args, **kwargs)
         self.learning_rates = learning_rates
-        self._lr_regex = {re.compile(k): v for k, v in learning_rates.items()}
 
     def _get_learning_rate_for_var(self, var):
         """Get learning rate for variable."""
-        for regex, lr in self._lr_regex.items():
-            if regex.search(var.name):
-                if isinstance(lr, optimizers.schedules.LearningRateSchedule):
-                    return lr(self.iterations)
-                elif callable(lr):
-                    return lr()
-                return lr
-        lr = self.learning_rate
+        lr = (
+            self.learning_rates[var.name]
+            if var.name in self.learning_rates
+            else self.learning_rate
+        )
         if isinstance(lr, optimizers.schedules.LearningRateSchedule):
-            return lr(self.iterations)
+            return lr(self._iterations)
         elif callable(lr):
             return lr()
 
