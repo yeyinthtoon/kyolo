@@ -63,7 +63,10 @@ def main(config):
         "bias": bias_decay,
     }
     optimizer = MultiLRAdam(
-        learning_rate=decay, learning_rates=learning_rates, weight_decay=0.0005
+        learning_rate=decay,
+        learning_rates=learning_rates,
+        weight_decay=0.0005,
+        global_clipnorm=10.0,
     )
     optimizer.exclude_from_weight_decay(
         var_names=["gamma", "beta", "moving_mean", "moving_variance", "bias"]

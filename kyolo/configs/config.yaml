@@ -12,5 +12,5 @@ defaults:
     - common
     - data
     - dataset
-    - model: v9-c
+    - model: gelan
     - nms
