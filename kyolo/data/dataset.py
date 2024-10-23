@@ -154,9 +154,9 @@ def batched_data_process(images, labels, config, mode):
         for fname, kwargs in transforms.items():
             transform_func = TRANSFORMS_REGISTRY[fname]
             if "labels" in set(inspect.signature(transform_func).parameters.keys()):
-                image, labels = transform_func(image, labels, **kwargs)
+                images, labels = transform_func(images, labels, **kwargs)
             else:
-                image = transform_func(image, **kwargs)
+                images = transform_func(images, **kwargs)
 
     if isinstance(images, tf.RaggedTensor):
         images = images.to_tensor(default_value=default_pad_value)
