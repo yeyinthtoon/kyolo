@@ -243,23 +243,30 @@ def get_align_indices_and_valid_mask_v2(topk_mask, iou_matrix):
     max_target = shapes[1]
     num_anchors = shapes[2]
     batch_size = shapes[0]
-    if ops.max(valid_mask) > 1:
-        multi_assigned = ops.broadcast_to(
-            valid_mask[:, None, :] > 1, (batch_size, max_target, num_anchors)
-        )
-        best_match_idx = ops.argmax(iou_matrix, axis=1)
+    condition = ops.max(valid_mask) > 1
+    multi_assigned = ops.broadcast_to(
+        valid_mask[:, None, :] > 1, (batch_size, max_target, num_anchors)
+    )
+    best_match_idx = ops.argmax(iou_matrix, axis=1)
 
-        batch_idx, anchor_idx = ops.meshgrid(
-            ops.arange(batch_size), ops.arange(num_anchors), indexing="ij"
-        )
+    batch_idx, anchor_idx = ops.meshgrid(
+        ops.arange(batch_size), ops.arange(num_anchors), indexing="ij"
+    )
 
-        best_matches = ops.zeros_like(topk_mask)
+    best_matches = ops.zeros_like(topk_mask)
 
-        best_matches = best_matches.at[batch_idx, best_match_idx, anchor_idx].set(1)
+    best_matches = best_matches.at[batch_idx, best_match_idx, anchor_idx].set(1)
 
-        topk_mask = ops.where(multi_assigned, best_matches, topk_mask)
-        valid_mask = ops.sum(topk_mask, axis=-2)
-
+    topk_mask = ops.where(
+        condition,
+        ops.where(multi_assigned, best_matches, topk_mask),
+        topk_mask
+    )
+    valid_mask = ops.where(
+        condition,
+        ops.sum(topk_mask, axis=-2),
+        valid_mask
+    )
     aligned_indices = ops.argmax(topk_mask, axis=-2)
     return aligned_indices[..., None], valid_mask, topk_mask
 
