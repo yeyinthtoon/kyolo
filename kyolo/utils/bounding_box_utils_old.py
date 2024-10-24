@@ -101,7 +101,7 @@ def calculate_iou(
             (bbox2[..., 2] - bbox2[..., 0]) / (bbox2[..., 3] - bbox2[..., 1] + eps)
         )
         v = (4 / (math.pi**2)) * (arctan**2)
-        alpha = ops.stop_gradient(v / (v - iou + 1 + eps))
+        alpha = v / (v - iou + 1 + eps)
 
         # Compute CIoU
         ciou = diou - alpha * v
@@ -199,69 +199,75 @@ def get_cls_matrix(predict_cls: KerasTensor, target_cls: KerasTensor) -> KerasTe
     return cls_probabilities
 
 
-def get_metrics(
+def filter_topk(
+    target_matrix: KerasTensor, topk: int = 10
+) -> Tuple[KerasTensor, KerasTensor]:
+    """
+    filter topk from give matrix and set everything else to zero
+
+    Args:
+        target_matrix: shape [B, T, A].
+    Returns:
+        target_topk_matrix, shape [B, T, A].
+        target_topk_mask, shape [B, T, A].
+    """
+    values, _ = ops.top_k(target_matrix, topk)
+    min_v = ops.min(values, axis=-1)[..., None]
+
+    topk_targets = ops.where(
+        target_matrix >= min_v, target_matrix, ops.zeros_like(target_matrix)
+    )
+    topk_masks = topk_targets > 0
+
+    return topk_targets, topk_masks
+
+
+def filter_duplicates(target_matrix: KerasTensor):
+    """
+    make sure an anchor only match single target.
+
+    Args:
+        target_matrix: shape [B, T, A].
+    Returns:
+        Tensor, shape [B, A, 1].
+    """
+    unique_indices = ops.argmax(target_matrix, axis=1)
+    return unique_indices[..., None]
+
+
+def get_align_indices_and_valid_mask(
     predict_cls,
     predict_bbox,
     target_cls,
     target_bbox,
-    target_anchor_mask,
+    anchors,
     dtype,
     iou: Literal["iou", "diou", "ciou", "siou"],
     iou_factor: float = 6,
     cls_factor: float = 0.5,
+    topk: int = 10,
 ):
+    target_anchor_mask = get_valid_matrix(anchors, target_bbox)
+
     iou_matrix = ops.clip(
         calculate_iou(target_bbox, predict_bbox, dtype, iou), 0.0, 1.0
     )
 
     cls_matrix = get_cls_matrix(predict_cls, target_cls)
 
-    iou_matrix = iou_matrix * target_anchor_mask
-    cls_matrix = cls_matrix * target_anchor_mask
+    target_matrix = (
+        ops.cast(target_anchor_mask, iou_matrix.dtype)
+        * (iou_matrix**iou_factor)
+        * (cls_matrix**cls_factor)
+    )
 
-    target_matrix = (iou_matrix**iou_factor) * (cls_matrix**cls_factor)
-    return target_matrix, iou_matrix
+    topk_targets, topk_mask = filter_topk(target_matrix, topk=topk)
 
+    aligned_indices = filter_duplicates(topk_targets)
 
-def gather_topk(target_matrix, topk=10, topk_mask=None, eps=1e-7):
-    topk_metrics, topk_idxs = ops.top_k(target_matrix, topk)
-    num_of_anchors = ops.shape(target_matrix)[-1]
-    if topk_mask is None:
-        topk_mask = ops.tile(
-            (ops.max(topk_metrics, axis=-1, keepdims=True) > eps), [1, 1, topk]
-        )
-    topk_idxs = ops.where(topk_mask, topk_idxs, ops.zeros_like(topk_idxs))
-    is_in_topk = ops.sum(ops.one_hot(topk_idxs, num_of_anchors), axis=-2)
-    is_in_topk = ops.where(is_in_topk > 1, ops.zeros_like(is_in_topk), is_in_topk)
-    is_in_topk = ops.cast(is_in_topk, target_matrix.dtype)
-    return is_in_topk
-
-
-def get_align_indices_and_valid_mask_v2(topk_mask, iou_matrix):
-    valid_mask = ops.sum(topk_mask, -2)
-    shapes = ops.shape(topk_mask)
-    max_target = shapes[1]
-    num_anchors = shapes[2]
-    batch_size = shapes[0]
-    if ops.max(valid_mask) > 1:
-        multi_assigned = ops.broadcast_to(
-            valid_mask[:, None, :] > 1, (batch_size, max_target, num_anchors)
-        )
-        best_match_idx = ops.argmax(iou_matrix, axis=1)
-
-        batch_idx, anchor_idx = ops.meshgrid(
-            ops.arange(batch_size), ops.arange(num_anchors), indexing="ij"
-        )
-
-        best_matches = ops.zeros_like(topk_mask)
-
-        best_matches = best_matches.at[batch_idx, best_match_idx, anchor_idx].set(1)
-
-        topk_mask = ops.where(multi_assigned, best_matches, topk_mask)
-        valid_mask = ops.sum(topk_mask, axis=-2)
-
-    aligned_indices = ops.argmax(topk_mask, axis=-2)
-    return aligned_indices[..., None], valid_mask, topk_mask
+    valid_mask = ops.sum(topk_mask, axis=-2)
+    valid_mask = ops.cast(valid_mask, "bool")
+    return aligned_indices, valid_mask, target_matrix, iou_matrix
 
 
 def get_aligned_targets_detection(
@@ -279,28 +285,20 @@ def get_aligned_targets_detection(
 ):
     iou_factor = ops.convert_to_tensor(iou_factor, dtype)
     cls_factor = ops.convert_to_tensor(cls_factor, dtype)
-    target_anchor_mask = ops.cast(get_valid_matrix(anchors, target_bbox), dtype)
-    gt_mask = ops.sum(target_bbox, axis=-1) > 0
-    gt_mask = gt_mask[:, :, None]
-    target_matrix, iou_matrix = get_metrics(
-        predict_cls,
-        predict_bbox,
-        target_cls,
-        target_bbox,
-        target_anchor_mask * gt_mask,
-        dtype,
-        iou,
-        iou_factor,
-        cls_factor,
+    aligned_indices, valid_mask, target_matrix, iou_matrix = (
+        get_align_indices_and_valid_mask(
+            predict_cls,
+            predict_bbox,
+            target_cls,
+            target_bbox,
+            anchors,
+            dtype,
+            iou,
+            iou_factor,
+            cls_factor,
+            topk,
+        )
     )
-    topk_mask = gather_topk(target_matrix, topk, gt_mask)
-    topk_mask = topk_mask * target_anchor_mask * gt_mask
-
-    aligned_indices, valid_mask, topk_mask = get_align_indices_and_valid_mask_v2(
-        topk_mask, iou_matrix
-    )
-
-    target_matrix = target_matrix * topk_mask
 
     align_bbox = ops.take_along_axis(
         target_bbox, ops.repeat(aligned_indices, 4, 2), axis=1
@@ -311,7 +309,7 @@ def get_aligned_targets_detection(
     align_cls = ops.one_hot(align_cls, number_of_classes, dtype=dtype)
 
     max_target = ops.amax(target_matrix, axis=-1, keepdims=True)
-    max_iou = ops.amax(iou_matrix * topk_mask, axis=-1, keepdims=True)
+    max_iou = ops.amax(iou_matrix, axis=-1, keepdims=True)
     normalize_term = (target_matrix / (max_target + 1e-9)) * max_iou
     normalize_term = ops.transpose(normalize_term, (0, 2, 1))
     normalize_term = ops.take_along_axis(normalize_term, aligned_indices, axis=2)
