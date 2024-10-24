@@ -1,7 +1,7 @@
 data:
   img_size: ${common.img_size}
   batch_size: ${common.batch_size}
-  default_pad_value: -1
+  default_pad_value: 0
   max_detection: ${nms.max_detection}
   seed: ${common.seed}
   mask_ratio: 4
