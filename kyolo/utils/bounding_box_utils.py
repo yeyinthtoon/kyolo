@@ -267,7 +267,7 @@ def get_align_indices_and_valid_mask(
 
     valid_mask = ops.sum(topk_mask, axis=-2)
     valid_mask = ops.cast(valid_mask, "bool")
-    return aligned_indices, valid_mask, topk_targets, iou_matrix*topk_mask
+    return aligned_indices, valid_mask, target_matrix, iou_matrix
 
 
 def get_aligned_targets_detection(
