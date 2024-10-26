@@ -84,7 +84,6 @@ class YoloV9Trainer(Model):
         for head_key in self.head_keys:
             head_loss_weight = head_loss_weights.get(head_key, 1.0)
             losses[f"{head_key}_box"] = box_loss(
-                jit_compile=kwargs.get("jit_compile", False),
                 iou=box_loss_iou,
                 reduction=loss_reduction,
             )
@@ -92,7 +91,6 @@ class YoloV9Trainer(Model):
             losses[f"{head_key}_dfl"] = dfl_loss(
                 self.anchor_norm,
                 self.reg_max,
-                kwargs.get("jit_compile", False),
                 reduction=loss_reduction,
             )
             loss_weights[f"{head_key}_box"] = box_loss_weight * head_loss_weight
@@ -103,8 +101,14 @@ class YoloV9Trainer(Model):
             if self.task == "segmentation":
                 if not segmentation_loss:
                     raise ValueError("missing segmentation loss")
-                losses[f"{head_key}_segmentation"] = segmentation_loss(reduction=loss_reduction)
-                segmentation_loss_weight = box_loss_weight if not segmentation_loss_weight else segmentation_loss_weight
+                losses[f"{head_key}_segmentation"] = segmentation_loss(
+                    reduction=loss_reduction
+                )
+                segmentation_loss_weight = (
+                    box_loss_weight
+                    if not segmentation_loss_weight
+                    else segmentation_loss_weight
+                )
                 loss_weights[f"{head_key}_segmentation"] = (
                     segmentation_loss_weight * head_loss_weight
                 )
@@ -116,6 +120,7 @@ class YoloV9Trainer(Model):
         del sample_weight
         y_pred_final = {}
         y_true_final = {}
+        sample_weights = {}
         for head_key in self.head_keys:
             cls, anchors, boxes = (
                 ops.cast(y_pred[head_key][0], self.dtype),
@@ -125,8 +130,8 @@ class YoloV9Trainer(Model):
 
             align_cls, align_bbox, valid_mask, aligned_indices = (
                 self.get_aligned_targets_detection(
-                    cls,
-                    boxes,
+                    ops.stop_gradient(cls),
+                    ops.stop_gradient(boxes),
                     y["classes"],
                     y["bboxes"],
                     self.num_of_classes,
@@ -136,86 +141,36 @@ class YoloV9Trainer(Model):
             )
 
             align_bbox_scaled = align_bbox / self.scalers[None, ..., None]
-            boxes = boxes / self.scalers[None, ..., None]
+            valid_align_bbox = align_bbox_scaled * valid_mask[..., None]
+            
+            boxes = (boxes / self.scalers[None, ..., None]) * valid_mask[..., None]
+            
+
+            cls_norm = ops.maximum(ops.sum(align_cls), 1.0)
+            box_norm = ops.sum(align_cls, axis=-1) * valid_mask
 
             y_pred_final[f"{head_key}_box"] = boxes
             y_pred_final[f"{head_key}_dfl"] = anchors
             y_pred_final[f"{head_key}_class"] = cls
 
-            box_target = ops.concatenate(
-                [align_bbox_scaled, valid_mask[..., None], align_cls], axis=-1
-            )
-
-            if self.task == "segmentation":
-                mask_embs, protos = (
-                    ops.cast(y_pred[head_key][3], self.dtype),
-                    ops.cast(y_pred[head_key][4], self.dtype),
-                )
-
-                shapes = ops.shape(mask_embs)
-                batch = shapes[0]
-                max_predict = shapes[1]
-
-                valid_segmentation_mask = ops.broadcast_to(
-                    valid_mask[..., None, None],
-                    (batch, max_predict, self.mask_h, self.mask_w),
-                )
-                box_mask = generate_bbox_mask(
-                    align_bbox,
-                    self.mask_h,
-                    self.mask_w,
-                    self.input_size[0],
-                    self.input_size[1],
-                )
-                valid_segmentation_mask = box_mask * valid_segmentation_mask
-
-                y_pred_final[f"{head_key}_segmentation"] = ops.reshape(
-                    (
-                        activations.sigmoid(
-                            ops.einsum("bne,bhwe->bnhw", mask_embs, protos)
-                        )
-                        * valid_segmentation_mask
-                    ),
-                    (batch, max_predict, -1),
-                )
-
-                aligned_segmentation_indices = ops.broadcast_to(
-                    aligned_indices[..., None],
-                    (batch, max_predict, self.mask_h, self.mask_w),
-                )
-                align_segmentation_mask = (
-                    ops.take_along_axis(
-                        ops.transpose(y["masks"], (0, 3, 1, 2)),
-                        aligned_segmentation_indices,
-                        axis=1,
-                    )
-                    * valid_segmentation_mask
-                )
-
-                align_segmentation_mask = ops.reshape(
-                    align_segmentation_mask, (batch, max_predict, -1)
-                )
-                align_segmentation_mask = ops.reshape(
-                    align_segmentation_mask, (batch, max_predict, -1)
-                )
-
-                normalized_box_area = get_normalized_box_area(
-                    align_bbox, self.input_size[0], self.input_size[1]
-                )
-
-                segmentation_target = ops.concatenate(
-                    [normalized_box_area[..., None], valid_mask[..., None], align_segmentation_mask], axis=-1
-                )
-                y_true_final[f"{head_key}_segmentation"] = segmentation_target
-
-            y_true_final[f"{head_key}_box"] = box_target
-            y_true_final[f"{head_key}_dfl"] = box_target
+            y_true_final[f"{head_key}_box"] = valid_align_bbox
+            y_true_final[f"{head_key}_dfl"] = valid_align_bbox
             y_true_final[f"{head_key}_class"] = align_cls
+
+            sample_weights[f"{head_key}_box"] = (
+                self.yolo_loss_weights.get(f"{head_key}_box", 1.0) * box_norm
+            ) / cls_norm
+            sample_weights[f"{head_key}_dfl"] = (
+                self.yolo_loss_weights.get(f"{head_key}_dfl", 1.0) * box_norm
+            ) / cls_norm
+            sample_weights[f"{head_key}_class"] = (
+                self.yolo_loss_weights.get(f"{head_key}_class", 1.0) / cls_norm
+            )
         return super().compute_loss(
             x=x,
             y=y_true_final,
             y_pred=y_pred_final,
-            sample_weight=self.yolo_loss_weights,
+            sample_weight=sample_weights,
             **kwargs,
         )
 

@@ -19,7 +19,7 @@ def calculate_iou(
     dtype: str,
     metrics: Literal["iou", "diou", "ciou", "siou"] = "iou",
     pairwise: bool = True,
-    eps: float = 1e-9,
+    eps: float = 1e-7,
 ):
     """
     Calculates IoU (Intersection over Union), DIoU, CIoU, SIoU between bounding boxes.
@@ -247,15 +247,18 @@ def get_align_indices_and_valid_mask_v2(topk_mask, iou_matrix):
     multi_assigned = ops.broadcast_to(
         valid_mask[:, None, :] > 1, (batch_size, max_target, num_anchors)
     )
+    # best_match_idx = ops.argmax(iou_matrix, axis=1)
+
+    # batch_idx, anchor_idx = ops.meshgrid(
+    #     ops.arange(batch_size), ops.arange(num_anchors), indexing="ij"
+    # )
+
+    # best_matches = ops.zeros_like(topk_mask)
+
+    # best_matches = best_matches.at[batch_idx, best_match_idx, anchor_idx].set(1)
+
     best_match_idx = ops.argmax(iou_matrix, axis=1)
-
-    batch_idx, anchor_idx = ops.meshgrid(
-        ops.arange(batch_size), ops.arange(num_anchors), indexing="ij"
-    )
-
-    best_matches = ops.zeros_like(topk_mask)
-
-    best_matches = best_matches.at[batch_idx, best_match_idx, anchor_idx].set(1)
+    best_matches = ops.one_hot(best_match_idx, max_target, axis=1)
 
     topk_mask = ops.where(
         condition,
@@ -288,7 +291,7 @@ def get_aligned_targets_detection(
     cls_factor = ops.convert_to_tensor(cls_factor, dtype)
     target_anchor_mask = ops.cast(get_valid_matrix(anchors, target_bbox), dtype)
     gt_mask = ops.sum(target_bbox, axis=-1) > 0
-    gt_mask = gt_mask[:, :, None]
+    gt_mask = ops.cast(gt_mask[:, :, None],dtype)
     target_matrix, iou_matrix = get_metrics(
         predict_cls,
         predict_bbox,
@@ -300,7 +303,7 @@ def get_aligned_targets_detection(
         iou_factor,
         cls_factor,
     )
-    topk_mask = gather_topk(target_matrix, topk, gt_mask)
+    topk_mask = ops.cast(gather_topk(target_matrix, topk, gt_mask),dtype)
     topk_mask = topk_mask * target_anchor_mask * gt_mask
 
     aligned_indices, valid_mask, topk_mask = get_align_indices_and_valid_mask_v2(
@@ -319,7 +322,7 @@ def get_aligned_targets_detection(
 
     max_target = ops.amax(target_matrix, axis=-1, keepdims=True)
     max_iou = ops.amax(iou_matrix * topk_mask, axis=-1, keepdims=True)
-    normalize_term = (target_matrix / (max_target + 1e-9)) * max_iou
+    normalize_term = (target_matrix / (max_target + 1e-7)) * max_iou
     normalize_term = ops.transpose(normalize_term, (0, 2, 1))
     normalize_term = ops.take_along_axis(normalize_term, aligned_indices, axis=2)
 
