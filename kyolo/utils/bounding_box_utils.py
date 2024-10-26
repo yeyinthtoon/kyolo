@@ -182,7 +182,9 @@ def get_valid_matrix(anchors: KerasTensor, target_bbox: KerasTensor) -> KerasTen
     return target_on_anchor
 
 
-def get_cls_matrix(predict_cls: KerasTensor, target_cls: KerasTensor) -> KerasTensor:
+def get_cls_matrix(
+    predict_cls: KerasTensor, target_cls: KerasTensor, from_logits: bool = True
+) -> KerasTensor:
     """
     get target class score of  all anchors
 
@@ -192,7 +194,8 @@ def get_cls_matrix(predict_cls: KerasTensor, target_cls: KerasTensor) -> KerasTe
     Returns:
         Tensor, shape [B, T, A].
     """
-    predict_cls = ops.sigmoid(predict_cls)
+    if from_logits:
+        predict_cls = ops.sigmoid(predict_cls)
     predict_cls = ops.transpose(predict_cls, (0, 2, 1))
     target_cls = ops.repeat(target_cls, predict_cls.shape[2], 2)
     cls_probabilities = ops.take_along_axis(predict_cls, target_cls, axis=1)
@@ -209,12 +212,13 @@ def get_metrics(
     iou: Literal["iou", "diou", "ciou", "siou"],
     iou_factor: float = 6,
     cls_factor: float = 0.5,
+    from_logits: bool = True,
 ):
     iou_matrix = ops.clip(
         calculate_iou(target_bbox, predict_bbox, dtype, iou), 0.0, 1.0
     )
 
-    cls_matrix = get_cls_matrix(predict_cls, target_cls)
+    cls_matrix = get_cls_matrix(predict_cls, target_cls, from_logits)
 
     iou_matrix = iou_matrix * target_anchor_mask
     cls_matrix = cls_matrix * target_anchor_mask
@@ -261,15 +265,9 @@ def get_align_indices_and_valid_mask_v2(topk_mask, iou_matrix):
     best_matches = ops.one_hot(best_match_idx, max_target, axis=1)
 
     topk_mask = ops.where(
-        condition,
-        ops.where(multi_assigned, best_matches, topk_mask),
-        topk_mask
+        condition, ops.where(multi_assigned, best_matches, topk_mask), topk_mask
     )
-    valid_mask = ops.where(
-        condition,
-        ops.sum(topk_mask, axis=-2),
-        valid_mask
-    )
+    valid_mask = ops.where(condition, ops.sum(topk_mask, axis=-2), valid_mask)
     aligned_indices = ops.argmax(topk_mask, axis=-2)
     return aligned_indices[..., None], valid_mask, topk_mask
 
@@ -286,12 +284,13 @@ def get_aligned_targets_detection(
     iou_factor: float = 6,
     cls_factor: float = 0.5,
     topk: int = 10,
+    from_logits: bool = True,
 ):
     iou_factor = ops.convert_to_tensor(iou_factor, dtype)
     cls_factor = ops.convert_to_tensor(cls_factor, dtype)
     target_anchor_mask = ops.cast(get_valid_matrix(anchors, target_bbox), dtype)
     gt_mask = ops.sum(target_bbox, axis=-1) > 0
-    gt_mask = ops.cast(gt_mask[:, :, None],dtype)
+    gt_mask = ops.cast(gt_mask[:, :, None], dtype)
     target_matrix, iou_matrix = get_metrics(
         predict_cls,
         predict_bbox,
@@ -302,8 +301,9 @@ def get_aligned_targets_detection(
         iou,
         iou_factor,
         cls_factor,
+        from_logits,
     )
-    topk_mask = ops.cast(gather_topk(target_matrix, topk, gt_mask),dtype)
+    topk_mask = ops.cast(gather_topk(target_matrix, topk, gt_mask), dtype)
     topk_mask = topk_mask * target_anchor_mask * gt_mask
 
     aligned_indices, valid_mask, topk_mask = get_align_indices_and_valid_mask_v2(
