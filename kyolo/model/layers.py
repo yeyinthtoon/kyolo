@@ -74,7 +74,6 @@ class ConstantPadding2D(Layer):
         base_config = super().get_config()
         return {**base_config, **config}
 
-
 class Vec2Box(Layer):
     def __init__(
         self,
@@ -88,13 +87,13 @@ class Vec2Box(Layer):
         anchors, scalers = get_anchors_and_scalers(
             detection_head_output_shape, input_size
         )
-        self.anchors = ops.cast(anchors, self.compute_dtype)
-        self.scalers = ops.cast(scalers, self.compute_dtype)
+        anchors = ops.cast(anchors, self.compute_dtype)
+        scalers = ops.cast(scalers, self.compute_dtype)
+        self.anchors_norm = anchors/scalers[...,None]
 
     def call(self, inputs: KerasTensor) -> KerasTensor:
-        pred_ltrb = inputs * ops.reshape(self.scalers, (1, -1, 1))
-        lt, rb = ops.split(pred_ltrb, 2, axis=-1)
-        preds_box = ops.concatenate([self.anchors - lt, self.anchors + rb], axis=-1)
+        lt, rb = ops.split(inputs, 2, axis=-1)
+        preds_box = ops.concatenate([self.anchors_norm - lt, self.anchors_norm + rb], axis=-1)
         return preds_box
 
     def compute_output_shape(self, input_shape: Tuple[int, ...]) -> Tuple[int, ...]:
