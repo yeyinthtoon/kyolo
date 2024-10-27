@@ -30,6 +30,7 @@ class DFLLoss(losses.Loss):
         self.reg_max = reg_max
 
     def call(self, y_true, y_pred):
+        valid_mask, y_true = ops.split(y_true, [1], axis=-1)
         left_target, right_target = ops.split(y_true, 2, axis=-1)
         target_dist = ops.concatenate(
             [(self.anchor_norm - left_target), (right_target - self.anchor_norm)],
@@ -50,7 +51,7 @@ class DFLLoss(losses.Loss):
             target_right, y_pred, from_logits=True
         )
         dfl_loss = loss_left * weight_left + loss_right * weight_right
-        dfl_loss = ops.mean(dfl_loss, axis=-1)
+        dfl_loss = ops.mean(dfl_loss, axis=-1)*ops.squeeze(valid_mask)
         return dfl_loss
 
     def get_config(self):

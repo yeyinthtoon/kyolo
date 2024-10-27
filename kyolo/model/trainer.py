@@ -145,17 +145,18 @@ class YoloV9Trainer(Model):
             align_bbox_scaled = align_bbox / self.scalers[..., None]
             valid_align_bbox = align_bbox_scaled * valid_mask[..., None]
 
-            boxes = boxes * valid_mask[..., None]
+            dfl_bbox = ops.concatenate([valid_mask[..., None], align_bbox_scaled],axis=-1)
+
 
             cls_norm = ops.maximum(ops.sum(align_cls), 1.0)
             box_norm = ops.sum(align_cls, axis=-1) * valid_mask
 
-            y_pred_final[f"{head_key}_box"] = boxes
-            y_pred_final[f"{head_key}_dfl"] = anchors
+            y_pred_final[f"{head_key}_box"] = boxes * valid_mask[..., None]
+            y_pred_final[f"{head_key}_dfl"] = anchors 
             y_pred_final[f"{head_key}_class"] = cls
 
             y_true_final[f"{head_key}_box"] = valid_align_bbox
-            y_true_final[f"{head_key}_dfl"] = valid_align_bbox
+            y_true_final[f"{head_key}_dfl"] = dfl_bbox
             y_true_final[f"{head_key}_class"] = align_cls
 
             sample_weights[f"{head_key}_box"] = (
