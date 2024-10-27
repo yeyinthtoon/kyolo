@@ -464,15 +464,11 @@ def cb_fuse(
 
 
 def anc2vec(x: KerasTensor, regmax: int = 16) -> Tuple[KerasTensor, KerasTensor]:
-    kernel = ops.reshape(
-        ops.arange(start=0, stop=regmax, dtype=x.dtype), (1, 1, 1, regmax, 1)
-    )
-
-    _, h, w, c = x.shape
-    x = ops.reshape(x, (-1, h, w, 4, c // 4))
-    vector_x = ops.softmax(x, -1)
-    vector_x = ops.conv(vector_x, kernel)[:, :, :, :, 0]
-
+    _, h, w, c = ops.shape(x)
+    x_reshaped = ops.reshape(x, (-1, 4, c // 4))
+    vector_x = ops.softmax(x_reshaped, -1) * ops.arange(16, dtype=x.dtype)
+    vector_x = ops.sum(vector_x, axis=-1)
+    vector_x = ops.reshape(vector_x, (-1, h, w, 4))
     return x, vector_x
 
 
@@ -486,6 +482,7 @@ def conv_sequence(
     out_channels: int,
     groups: int,
     bias_init: float,
+    activation: Optional[str] = None,
     name: Optional[str] = None,
 ):
     x = conv_block(x, inter_channels, 3, name=f"{name}.conv_block_1" if name else name)
@@ -504,6 +501,11 @@ def conv_sequence(
         bias_initializer=initializers.Constant(bias_init),
         name=f"{name}.conv" if name else name,
     )(x)
+    if activation:
+        activation = activation.lower()
+        x = layers.Activation(
+            activations.get(activation.lower()), name=f"{name}.act" if name else name
+        )(x)
     return x
 
 
@@ -534,6 +536,7 @@ def detection(
         num_classes,
         1,
         -10.0,
+        "sigmoid",
         name=f"{name}.class_conv" if name else name,
     )
     anchor_x, vector_x = anc2vec(anchor_x, regmax=reg_max)
