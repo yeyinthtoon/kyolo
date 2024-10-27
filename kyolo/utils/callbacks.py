@@ -12,6 +12,7 @@ class PyCOCOCallback(callbacks.Callback):
         self,
         validation_data,
         bounding_box_format,
+        box_scalers,
         pred_key="main",
         nms_conf=0.5,
         nms_iou=0.3,
@@ -42,13 +43,14 @@ class PyCOCOCallback(callbacks.Callback):
         if cache:
             # We cache the dataset to preserve a consistent iteration order.
             self.val_data = self.val_data.cache()
+        self.box_scalers = box_scalers
         self.bounding_box_format = bounding_box_format
         self.nms_conf = nms_conf
         self.nms_iou = nms_iou
         self.pred_key = pred_key
         self.nms = NonMaxSuppression(
             bounding_box_format,
-            True,
+            False,
             confidence_threshold=nms_conf,
             iou_threshold=nms_iou,
             max_detections=max_detection,
@@ -75,7 +77,7 @@ class PyCOCOCallback(callbacks.Callback):
         images_only_ds = self.val_data.map(images_only)
         y_pred_ = self.model.predict(images_only_ds)[self.pred_key]
 
-        y_pred = self.nms(y_pred_[2], y_pred_[0])
+        y_pred = self.nms(y_pred_[2]*self.box_scalers[...,None], y_pred_[0])
         box_pred = y_pred["boxes"]
         cls_pred = ops.convert_to_numpy(y_pred["classes"])
         confidence_pred = ops.convert_to_numpy(y_pred["confidence"])

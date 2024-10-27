@@ -87,7 +87,9 @@ class YoloV9Trainer(Model):
                 iou=box_loss_iou,
                 reduction=loss_reduction,
             )
-            losses[f"{head_key}_class"] = classification_loss(reduction=loss_reduction)
+            losses[f"{head_key}_class"] = classification_loss(
+                from_logits=False, reduction=loss_reduction
+            )
             losses[f"{head_key}_dfl"] = dfl_loss(
                 self.anchor_norm,
                 self.reg_max,
@@ -117,7 +119,6 @@ class YoloV9Trainer(Model):
         super().compile(loss=losses, **kwargs)
 
     def compute_loss(self, x, y, y_pred, sample_weight=None, **kwargs):
-        del sample_weight
         y_pred_final = {}
         y_true_final = {}
         sample_weights = {}
@@ -131,20 +132,20 @@ class YoloV9Trainer(Model):
             align_cls, align_bbox, valid_mask, aligned_indices = (
                 self.get_aligned_targets_detection(
                     ops.stop_gradient(cls),
-                    ops.stop_gradient(boxes),
+                    ops.stop_gradient(boxes * self.scalers[..., None]),
                     y["classes"],
                     y["bboxes"],
                     self.num_of_classes,
                     self.anchors,
                     self.dtype,
+                    from_logits=False,
                 )
             )
 
-            align_bbox_scaled = align_bbox / self.scalers[None, ..., None]
+            align_bbox_scaled = align_bbox / self.scalers[..., None]
             valid_align_bbox = align_bbox_scaled * valid_mask[..., None]
-            
-            boxes = (boxes / self.scalers[None, ..., None]) * valid_mask[..., None]
-            
+
+            boxes = boxes * valid_mask[..., None]
 
             cls_norm = ops.maximum(ops.sum(align_cls), 1.0)
             box_norm = ops.sum(align_cls, axis=-1) * valid_mask
