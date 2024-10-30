@@ -6,7 +6,6 @@ data:
   seed: ${common.seed}
   mask_ratio: 4
   cache: false
-  mosaic: true
   transforms:
     random_crop:
       min_crop_ratio: 0.5
@@ -22,12 +21,12 @@ data:
       c_min: 0
       c_max: 2
 
-    # random_blur:
-    #   kernel_size: [3, 3]
-    #   min_sigma: 0
-    #   max_sigma: 10
+    random_blur:
+      kernel_size: [3, 3]
+      min_sigma: 0
+      max_sigma: 10
 
-  batched_transform:
+  batched_transforms:
     random_flip_vertical:
       seed: ${data.seed}
       prob: 0.25
@@ -35,3 +34,7 @@ data:
     random_flip_horizontal:
       seed: ${data.seed}
       prob: 0.25
+
+    mosaic:
+      seed: ${data.seed}
+      prob: 1.0
