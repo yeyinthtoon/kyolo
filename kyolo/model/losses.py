@@ -43,15 +43,18 @@ class DFLLoss(losses.Loss):
             target_right - target_dist,
             target_dist - target_left,
         )
+
+        target_left = ops.where(valid_mask, target_left, -1)
+        target_right = ops.where(valid_mask, target_right, -1)
         # TODO: check correctness
         loss_left = losses.sparse_categorical_crossentropy(
-            target_left, y_pred, from_logits=True
+            target_left, y_pred, from_logits=True, ignore_class=-1
         )
         loss_right = losses.sparse_categorical_crossentropy(
-            target_right, y_pred, from_logits=True
+            target_right, y_pred, from_logits=True, ignore_class=-1
         )
         dfl_loss = loss_left * weight_left + loss_right * weight_right
-        dfl_loss = ops.mean(dfl_loss, axis=-1)*ops.squeeze(valid_mask)
+        dfl_loss = ops.mean(dfl_loss, axis=-1)
         return dfl_loss
 
     def get_config(self):
